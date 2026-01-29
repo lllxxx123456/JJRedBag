@@ -29,6 +29,7 @@ jobs:
 
       - name: Build deb for rootful
         run: |
+          sed -i 's/\r$//' control Makefile
           sed -i 's/^ARCHS := .*/ARCHS := arm64/' Makefile
           sed -i 's/^Architecture: .*/Architecture: iphoneos-arm/' control
           make clean
@@ -53,6 +54,7 @@ jobs:
 
       - name: Build deb for rootless
         run: |
+          sed -i 's/\r$//' control Makefile
           sed -i 's/^ARCHS := .*/ARCHS := arm64/' Makefile
           sed -i 's/^Architecture: .*/Architecture: iphoneos-arm64/' control
           make clean
@@ -77,6 +79,7 @@ jobs:
 
       - name: Build deb for roothide
         run: |
+          sed -i 's/\r$//' control Makefile
           sed -i 's/^ARCHS := .*/ARCHS := arm64e/' Makefile
           sed -i 's/^Architecture: .*/Architecture: iphoneos-arm64e/' control
           make clean

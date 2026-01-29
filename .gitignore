@@ -1,0 +1,14 @@
+# Theos build files
+.theos/
+obj/
+packages/
+*.deb
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+*.xcworkspace
+*.xcuserdata

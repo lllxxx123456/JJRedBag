@@ -49,19 +49,34 @@
 }
 
 - (void)setupNavigationBar {
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"xmark.circle.fill"]
-                                                                              style:UIBarButtonItemStylePlain
-                                                                             target:self
-                                                                             action:@selector(dismissSelf)];
+    // 关闭按钮 - iOS 13+使用SF Symbols，低版本使用文字
+    if (@available(iOS 13.0, *)) {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"xmark.circle.fill"]
+                                                                                  style:UIBarButtonItemStylePlain
+                                                                                 target:self
+                                                                                 action:@selector(dismissSelf)];
+    } else {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"关闭"
+                                                                                  style:UIBarButtonItemStylePlain
+                                                                                 target:self
+                                                                                 action:@selector(dismissSelf)];
+    }
     self.navigationItem.rightBarButtonItem.tintColor = JJ_TEXT_SECONDARY;
     
-    UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
-    [appearance configureWithOpaqueBackground];
-    appearance.backgroundColor = JJ_BG_COLOR;
-    appearance.shadowColor = [UIColor clearColor];
-    appearance.titleTextAttributes = @{NSForegroundColorAttributeName: JJ_TEXT_PRIMARY, NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]};
-    self.navigationController.navigationBar.standardAppearance = appearance;
-    self.navigationController.navigationBar.scrollEdgeAppearance = appearance;
+    // 导航栏外观 - iOS 13+
+    if (@available(iOS 13.0, *)) {
+        UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
+        [appearance configureWithOpaqueBackground];
+        appearance.backgroundColor = JJ_BG_COLOR;
+        appearance.shadowColor = [UIColor clearColor];
+        appearance.titleTextAttributes = @{NSForegroundColorAttributeName: JJ_TEXT_PRIMARY, NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]};
+        self.navigationController.navigationBar.standardAppearance = appearance;
+        self.navigationController.navigationBar.scrollEdgeAppearance = appearance;
+    } else {
+        self.navigationController.navigationBar.barTintColor = JJ_BG_COLOR;
+        self.navigationController.navigationBar.titleTextAttributes = @{NSForegroundColorAttributeName: JJ_TEXT_PRIMARY, NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]};
+        self.navigationController.navigationBar.shadowImage = [[UIImage alloc] init];
+    }
 }
 
 - (void)setupHeaderView {
@@ -249,7 +264,11 @@
     
     // 箭头图标
     UIImageView *arrowView = [[UIImageView alloc] initWithFrame:CGRectMake(cardView.bounds.size.width - 36, 18, 16, 16)];
-    arrowView.image = [UIImage systemImageNamed:@"chevron.right"];
+    if (@available(iOS 13.0, *)) {
+        arrowView.image = [UIImage systemImageNamed:@"chevron.right"];
+    } else {
+        arrowView.image = nil;
+    }
     arrowView.tintColor = JJ_TEXT_SECONDARY;
     arrowView.contentMode = UIViewContentModeScaleAspectFit;
     

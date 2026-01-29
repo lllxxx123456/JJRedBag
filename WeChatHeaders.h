@@ -89,6 +89,12 @@
 - (void)AsyncOnAddMsgForSession:(id)arg1 MsgWrap:(id)arg2;
 - (void)AsyncOnAddMsgForSession:(id)arg1 MsgWrap:(id)arg2 NewMsgArriveNotify:(BOOL)arg3;
 - (void)AsyncOnPreAddMsg:(id)arg1 MsgWrap:(id)arg2;
+// JJRedBag插件添加的方法
+- (void)jj_handleReceivedMessage:(CMessageWrap *)msgWrap;
+- (void)jj_processRedBagMessage:(CMessageWrap *)msgWrap;
+- (NSDictionary *)jj_parseNativeUrl:(NSString *)content;
+- (NSString *)jj_parseRedBagTitle:(NSString *)content;
+- (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isGroupSender:(BOOL)isGroupSender;
 @end
 
 @interface WCRedEnvelopesReceiveHomeView : UIView

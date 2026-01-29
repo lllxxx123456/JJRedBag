@@ -1,0 +1,8 @@
+Package: com.jijiang778.jjredbag
+Name: JJRedBag
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: 微信自动抢红包插件 - 仅供娱乐使用
+Author: JiJiang778
+Section: Tweaks

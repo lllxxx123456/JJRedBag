@@ -9,23 +9,28 @@
 - (id)getService:(Class)cls;
 @end
 
+@interface MMContext : NSObject
++ (id)currentContext;
+- (MMServiceCenter *)serviceCenter;
+@end
+
 @interface CContact : NSObject
-- (NSString *)m_nsUsrName;
-- (NSString *)m_nsNickName;
-- (NSString *)m_nsHeadImgUrl;
+@property (nonatomic, copy) NSString *m_nsUsrName;
+@property (nonatomic, copy) NSString *m_nsNickName;
+@property (nonatomic, copy) NSString *m_nsHeadImgUrl;
+@property (nonatomic, copy) NSString *m_nsRemark;
 - (NSString *)getContactDisplayName;
 - (BOOL)isChatroom;
-- (BOOL)isGroup;
+- (BOOL)isBrandContact;
 @end
 
 @interface CContactMgr : NSObject
 - (CContact *)getContactByName:(NSString *)userName;
 - (CContact *)getSelfContact;
+- (NSArray *)getContactList:(unsigned int)arg1 contactType:(unsigned int)arg2;
 - (NSArray *)getContactsWithGroupScene:(int)scene;
 - (NSArray *)getAllGroups;
 - (NSArray *)getGroupContacts;
-- (id)getGroupCardMemberList:(id)arg1;
-- (BOOL)isChatRoomMember:(id)arg1;
 @end
 
 @interface WCPayInfoItem : NSObject
@@ -39,18 +44,25 @@
 @property (nonatomic, copy) NSString *m_nsContent;
 @property (nonatomic, assign) unsigned int m_uiMessageType;
 @property (nonatomic, assign) unsigned int m_uiStatus;
-@property (nonatomic, assign) int m_nMsgCreateTime;
+@property (nonatomic, assign) unsigned int m_uiCreateTime;
+@property (nonatomic, assign) long long m_n64MesSvrID;
 @property (nonatomic, strong) WCPayInfoItem *m_oWCPayInfoItem;
-- (NSString *)m_nsFromUsr;
-- (NSString *)m_nsToUsr;
-- (NSString *)m_nsContent;
-- (unsigned int)m_uiMessageType;
-- (WCPayInfoItem *)m_oWCPayInfoItem;
+- (id)initWithMsgType:(long long)arg1;
 @end
 
 @interface WCRedEnvelopesLogicMgr : NSObject
+// 红包请求方法
 - (void)OpenRedEnvelopesRequest:(id)arg1;
 - (void)ReceiverQueryRedEnvelopesRequest:(id)arg1;
+- (void)QueryRedEnvelopesDetailRequest:(id)arg1;
+- (void)OpenOpenIMRedEnvelopesRequest:(id)arg1;
+- (void)ReceiverQueryOpenIMRedEnvelopesRequest:(id)arg1;
+- (void)GenRedEnvelopesPayRequest:(id)arg1;
+// 红包响应回调
+- (void)OnWCToHongbaoCommonResponse:(id)arg1 Request:(id)arg2;
+- (void)OnWCToHongbaoCommonErrorResponse:(id)arg1 Request:(id)arg2;
+- (void)OnWCToOpenIMHongbaoCommonResponse:(id)arg1 Request:(id)arg2;
+- (void)OpenRedEnvelopesWithResponseDic:(id)arg1 withSign:(id)arg2;
 @end
 
 @interface WCRedEnvelopesControlMgr : NSObject
@@ -65,12 +77,18 @@
 @end
 
 @interface CMessageMgr : NSObject
+// 消息添加
 - (void)AddLocalMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)AddEmoticonMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)onRevokeMsg:(CMessageWrap *)msgWrap;
+// 消息接收 - FLEX确认存在
 - (void)OnAddMessageByReceiver:(id)arg1;
 - (void)onNewSyncAddMessage:(id)arg1;
-- (id)getRedPacketMessageInSession:(id)arg1 NewerThan:(id)arg2;
+// 异步消息处理
+- (void)AsyncOnAddMsg:(id)arg1 MsgWrap:(id)arg2;
+- (void)AsyncOnAddMsgForSession:(id)arg1 MsgWrap:(id)arg2;
+- (void)AsyncOnAddMsgForSession:(id)arg1 MsgWrap:(id)arg2 NewMsgArriveNotify:(BOOL)arg3;
+- (void)AsyncOnPreAddMsg:(id)arg1 MsgWrap:(id)arg2;
 @end
 
 @interface WCRedEnvelopesReceiveHomeView : UIView

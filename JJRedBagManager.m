@@ -31,6 +31,7 @@
         _grabSelfEnabled = NO;
         _grabPrivateEnabled = NO;
         _backgroundGrabEnabled = NO;
+        _shakeToConfigEnabled = NO; // 默认关闭
     }
     return self;
 }
@@ -50,6 +51,7 @@
     settings[@"grabSelfEnabled"] = @(self.grabSelfEnabled);
     settings[@"grabPrivateEnabled"] = @(self.grabPrivateEnabled);
     settings[@"backgroundGrabEnabled"] = @(self.backgroundGrabEnabled);
+    settings[@"shakeToConfigEnabled"] = @(self.shakeToConfigEnabled);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -70,6 +72,11 @@
         self.grabSelfEnabled = [settings[@"grabSelfEnabled"] boolValue];
         self.grabPrivateEnabled = [settings[@"grabPrivateEnabled"] boolValue];
         self.backgroundGrabEnabled = [settings[@"backgroundGrabEnabled"] boolValue];
+        if (settings[@"shakeToConfigEnabled"]) {
+            self.shakeToConfigEnabled = [settings[@"shakeToConfigEnabled"] boolValue];
+        } else {
+            self.shakeToConfigEnabled = NO; // 默认值
+        }
     }
 }
 

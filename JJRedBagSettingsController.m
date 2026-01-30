@@ -10,7 +10,11 @@
 
 - (instancetype)init {
     // 使用 iOS 13+ 的 InsetGrouped 风格，自带卡片效果，完美适配深色模式
-    if (self = [super initWithStyle:UITableViewStyleInsetGrouped]) {
+    UITableViewStyle style = UITableViewStyleGrouped;
+    if (@available(iOS 13.0, *)) {
+        style = UITableViewStyleInsetGrouped;
+    }
+    if (self = [super initWithStyle:style]) {
         self.title = @"JJRedBag";
     }
     return self;
@@ -20,7 +24,11 @@
     [super viewDidLoad];
     
     // 设置主题色
-    self.view.tintColor = [UIColor systemRedColor];
+    if (@available(iOS 13.0, *)) {
+        self.view.tintColor = [UIColor systemRedColor];
+    } else {
+        self.view.tintColor = [UIColor redColor];
+    }
     
     // 导航栏设置
     [self setupNavigationBar];
@@ -47,10 +55,12 @@
     self.navigationItem.rightBarButtonItem = closeItem;
     
     // 导航栏外观
-    UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
-    [appearance configureWithDefaultBackground];
-    self.navigationItem.standardAppearance = appearance;
-    self.navigationItem.scrollEdgeAppearance = appearance;
+    if (@available(iOS 13.0, *)) {
+        UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
+        [appearance configureWithDefaultBackground];
+        self.navigationItem.standardAppearance = appearance;
+        self.navigationItem.scrollEdgeAppearance = appearance;
+    }
 }
 
 - (void)setupHeaderView {
@@ -58,7 +68,9 @@
     
     // 顶部 Logo/Icon 区域
     UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 60, 60)];
-    iconView.image = [UIImage systemImageNamed:@"envelope.fill"]; // 使用系统图标
+    if (@available(iOS 13.0, *)) {
+        iconView.image = [UIImage systemImageNamed:@"envelope.fill"]; // 使用系统图标
+    }
     iconView.tintColor = [UIColor systemRedColor];
     iconView.contentMode = UIViewContentModeScaleAspectFit;
     iconView.center = CGPointMake(headerView.center.x, 50);
@@ -69,7 +81,13 @@
     titleLabel.text = @"JJRedBag";
     titleLabel.font = [UIFont systemFontOfSize:24 weight:UIFontWeightBold];
     titleLabel.textAlignment = NSTextAlignmentCenter;
-    titleLabel.textColor = [UIColor labelColor];
+    
+    if (@available(iOS 13.0, *)) {
+        titleLabel.textColor = [UIColor labelColor];
+    } else {
+        titleLabel.textColor = [UIColor blackColor];
+    }
+    
     titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [headerView addSubview:titleLabel];
     
@@ -77,7 +95,13 @@
     versionLabel.text = @"v1.0.1 仅供娱乐";
     versionLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
     versionLabel.textAlignment = NSTextAlignmentCenter;
-    versionLabel.textColor = [UIColor secondaryLabelColor];
+    
+    if (@available(iOS 13.0, *)) {
+        versionLabel.textColor = [UIColor secondaryLabelColor];
+    } else {
+        versionLabel.textColor = [UIColor grayColor];
+    }
+    
     versionLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [headerView addSubview:versionLabel];
     
@@ -127,8 +151,14 @@
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"JJCell"];
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     
-    cell.textLabel.textColor = [UIColor labelColor];
-    cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
+    if (@available(iOS 13.0, *)) {
+        cell.textLabel.textColor = [UIColor labelColor];
+        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
+    } else {
+        cell.textLabel.textColor = [UIColor blackColor];
+        cell.detailTextLabel.textColor = [UIColor grayColor];
+    }
+    
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     
@@ -173,8 +203,13 @@
             sw.on = manager.filterKeywordEnabled;
             [sw addTarget:self action:@selector(filterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = sw;
-            cell.accessoryType = UITableViewCellAccessoryNone;
-            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            cellif (@available(iOS 13.0, *)) {
+                    .accessoryType = UITableViewCellAccessoryNone;
+            cell    .selectionStyle = UITableViewCellSelectionStyleNone;
+                } else {
+                    cell.textLabel.textColor = [UIColor lightGrayColor];
+                    cell.detailTextLabel.textColor = [UIColor lightGrayColor];
+                }
         } else if (indexPath.row == 1) {
             cell.textLabel.text = @"编辑关键词";
             cell.detailTextLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu 个", (unsigned long)manager.filterKeywords.count] : @"未设置";
@@ -398,4 +433,3 @@
 }
 
 @end
-

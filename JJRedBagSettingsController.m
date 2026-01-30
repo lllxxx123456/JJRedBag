@@ -1,6 +1,7 @@
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagManager.h"
 #import "JJRedBagGroupSelectController.h"
+#import "JJRedBagContactSelectController.h"
 
 @interface JJRedBagSettingsController ()
 @property (nonatomic, strong) UISwitch *mainSwitch;
@@ -119,7 +120,7 @@
 #pragma mark - TableView DataSource
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 3;
+    return 5;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -127,19 +128,25 @@
     if (section == 0) {
         return 1; // 总开关
     } else if (section == 1) {
-        if (!manager.enabled) return 0; // 关闭时隐藏设置
-        // 模式设置
+        if (!manager.enabled) return 0;
         if (manager.grabMode == JJGrabModeDelay) return 4;
         return 2;
     } else if (section == 2) {
-        if (!manager.enabled) return 0; // 关闭时隐藏设置
-        // 其他/过滤设置
-        // 0: 关键词过滤
-        // 1: 编辑关键词 (仅开启过滤时显示)
-        // 2: 抢自己
-        // 3: 抢私聊
-        // 4: 后台自动抢
-        // 5: 摇一摇呼出
+        // 自动回复
+        if (!manager.enabled) return 0;
+        if (!manager.autoReplyEnabled) return 1;
+        // 开启后: Switch, Private, Group, DelaySwitch, [DelayTime], Content
+        NSUInteger count = 5;
+        if (manager.autoReplyDelayEnabled) count++;
+        return count;
+    } else if (section == 3) {
+        // 通知
+        if (!manager.enabled) return 0;
+        if (!manager.notificationEnabled) return 1;
+        return 2; // Switch, Target
+    } else if (section == 4) {
+        // 其他设置
+        if (!manager.enabled) return 0;
         NSUInteger count = 5;
         if (manager.filterKeywordEnabled) count++;
         return count;
@@ -148,21 +155,22 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    // 使用 viewForHeaderInSection 代替
     return nil;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
     NSString *title = nil;
     if (section == 1) title = @"模式设置";
-    if (section == 2) title = @"其他设置";
+    else if (section == 2) title = @"自动回复";
+    else if (section == 3) title = @"红包通知";
+    else if (section == 4) title = @"其他设置";
     
     if (!title) return nil;
     
     UIView *headerView = [[UIView alloc] init];
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 5, tableView.bounds.size.width - 32, 30)];
     label.text = title;
-    label.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold]; // 加大字号
+    label.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
     if (@available(iOS 13.0, *)) {
         label.textColor = [UIColor secondaryLabelColor];
     } else {
@@ -231,6 +239,72 @@
         }
         
     } else if (indexPath.section == 2) {
+        // 自动回复设置
+        NSInteger row = indexPath.row;
+        // 如果没有开启延迟，跳过延迟时间行
+        if (!manager.autoReplyDelayEnabled && row > 3) {
+            row++;
+        }
+        
+        if (row == 0) {
+            cell.textLabel.text = @"自动回复";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.autoReplyEnabled;
+            sw.tag = 300;
+            [sw addTarget:self action:@selector(autoReplySwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (row == 1) {
+            cell.textLabel.text = @"私聊自动回复";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.autoReplyPrivateEnabled;
+            sw.tag = 301;
+            [sw addTarget:self action:@selector(autoReplySwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (row == 2) {
+            cell.textLabel.text = @"群聊自动回复";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.autoReplyGroupEnabled;
+            sw.tag = 302;
+            [sw addTarget:self action:@selector(autoReplySwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (row == 3) {
+            cell.textLabel.text = @"延迟回复";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.autoReplyDelayEnabled;
+            sw.tag = 303;
+            [sw addTarget:self action:@selector(autoReplySwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (row == 4) {
+            cell.textLabel.text = @"延迟时间";
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"%.1f 秒", manager.autoReplyDelayTime];
+        } else if (row == 5) {
+            cell.textLabel.text = @"回复内容";
+            cell.detailTextLabel.text = (manager.autoReplyContent && manager.autoReplyContent.length > 0) ? manager.autoReplyContent : @"未设置";
+        }
+    } else if (indexPath.section == 3) {
+        // 红包通知设置
+        if (indexPath.row == 0) {
+            cell.textLabel.text = @"已抢红包通知";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.notificationEnabled;
+            sw.tag = 400;
+            [sw addTarget:self action:@selector(notificationSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (indexPath.row == 1) {
+            cell.textLabel.text = @"通知对象";
+            cell.detailTextLabel.text = (manager.notificationChatName && manager.notificationChatName.length > 0) ? manager.notificationChatName : @"未设置";
+        }
+    } else if (indexPath.section == 4) {
         // 其他设置
         // 映射 indexPath.row 到实际功能
         // 如果开启了关键词过滤: 0=switch, 1=edit, 2=self, 3=private, 4=bg, 5=shake
@@ -306,6 +380,16 @@
         else if (indexPath.row == 3) [self showDelayTimeInput];
     } else if (indexPath.section == 2) {
         NSInteger row = indexPath.row;
+        if (!manager.autoReplyDelayEnabled && row > 3) {
+            row++;
+        }
+        
+        if (row == 4) [self showAutoReplyDelayTimeInput];
+        else if (row == 5) [self showAutoReplyContentInput];
+    } else if (indexPath.section == 3) {
+        if (indexPath.row == 1) [self showNotificationContactSelect];
+    } else if (indexPath.section == 4) {
+        NSInteger row = indexPath.row;
         if (!manager.filterKeywordEnabled && row > 0) row++;
         
         if (row == 1) [self showKeywordEditor];
@@ -350,7 +434,7 @@
     [manager saveSettings];
     
     // 动态插入或删除"编辑关键词"行
-    NSIndexPath *editRowIndexPath = [NSIndexPath indexPathForRow:1 inSection:2];
+    NSIndexPath *editRowIndexPath = [NSIndexPath indexPathForRow:1 inSection:4];
     if (sender.on) {
         [self.tableView insertRowsAtIndexPaths:@[editRowIndexPath] withRowAnimation:UITableViewRowAnimationFade];
     } else {
@@ -367,40 +451,63 @@
     [manager saveSettings];
 }
 
+- (void)autoReplySwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (sender.tag == 300) manager.autoReplyEnabled = sender.on;
+    if (sender.tag == 301) manager.autoReplyPrivateEnabled = sender.on;
+    if (sender.tag == 302) manager.autoReplyGroupEnabled = sender.on;
+    if (sender.tag == 303) {
+        manager.autoReplyDelayEnabled = sender.on;
+        [manager saveSettings];
+        
+        // 动态插入或删除"延迟时间"行
+        // section 2
+        // 如果开启延迟: Switch(0), Private(1), Group(2), DelaySwitch(3), DelayTime(4), Content(5)
+        // 如果关闭延迟: Switch(0), Private(1), Group(2), DelaySwitch(3), Content(4)
+        
+        NSIndexPath *delayTimePath = [NSIndexPath indexPathForRow:4 inSection:2];
+        if (sender.on) {
+            [self.tableView insertRowsAtIndexPaths:@[delayTimePath] withRowAnimation:UITableViewRowAnimationFade];
+        } else {
+            [self.tableView deleteRowsAtIndexPaths:@[delayTimePath] withRowAnimation:UITableViewRowAnimationFade];
+        }
+        return;
+    }
+    
+    [manager saveSettings];
+    [self.tableView reloadData]; // 刷新以更新依赖项显隐 (虽然目前除了delay外没有其他强依赖需要reload，但保持一致)
+}
+
+- (void)notificationSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (sender.tag == 400) manager.notificationEnabled = sender.on;
+    [manager saveSettings];
+    [self.tableView reloadData];
+}
+
 #pragma mark - Alerts
 
 - (void)showDisclaimerAlertWithCompletion:(void(^)(BOOL accepted))completion {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"免责声明"
                                                                    message:@"本插件仅供学习和娱乐使用。\n\n使用本插件可能导致微信账号被封禁等风险，风险需由您自行承担。\n\n作者不对任何后果负责。"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        if (completion) completion(NO);
-    }]];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"我已知晓并承担风险" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+    UIAlertAction *confirmAction = [UIAlertAction actionWithTitle:@"我已知晓并承担风险 (3)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
         JJRedBagManager *manager = [JJRedBagManager sharedManager];
         manager.hasShownDisclaimer = YES;
-        if (completion) completion(YES);
-    }]];
-    
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)showModeSelector {
-    JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择模式" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    
-    void (^handler)(JJGrabMode) = ^(JJGrabMode mode) {
-        manager.grabMode = mode;
+        manager.enabled = YES;
         [manager saveSettings];
-        [self.tableView reloadData];
-    };
+        if (completion) completion(YES);
+    }];
+    confirmAction.enabled = NO;
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"黑名单模式 (不抢选中的群)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeExclude); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"白名单模式 (只抢选中的群)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeOnly); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"延迟模式 (选中的群延迟抢)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeDelay); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"全抢模式 (所有群都抢)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeNone); }]];
+    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"那我不用了" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        if (completion) completion(NO);
+    }];
+    
+    [alert addAction:confirmAction];
+    [alert addAction:cancelAction];
+    
     
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     

@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <UserNotifications/UserNotifications.h>
 
 // 微信基础类声明
 

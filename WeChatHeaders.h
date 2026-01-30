@@ -98,8 +98,22 @@
 - (void)jj_processRedBagMessage:(CMessageWrap *)msgWrap;
 - (NSDictionary *)jj_parseNativeUrl:(NSString *)content;
 - (NSString *)jj_parseRedBagTitle:(NSString *)content;
+- (void)jj_openRedBagWithContext:(NSDictionary *)context;
 - (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isGroupSender:(BOOL)isGroupSender;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
+@end
+
+@interface WCRedEnvelopesLogicMgr (JJRedBag)
+- (void)jj_sendAutoReply:(id)param;
+- (void)jj_sendNotification:(id)param amount:(long long)amount;
+- (void)jj_sendLocalNotification:(id)param amount:(long long)amount;
+- (NSString *)jj_getCurrentTime;
+- (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser;
+@end
+
+@interface CAppViewControllerManager : NSObject
++ (instancetype)getAppViewControllerManager;
+- (void)jumpToChatRoom:(NSString *)usrName;
 @end
 
 @interface WCRedEnvelopesReceiveHomeView : UIView

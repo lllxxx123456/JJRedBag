@@ -563,9 +563,9 @@
 }
 
 %new
-- (v// 更新总金额
-    manager.totalAmount += amount;
-    [manager saveSettings];
+- (void)jj_sendLocalNotification:(JJRedBagParam *)param amount:(long long)amount {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.localNotificationEnabled) return;
     
     double amountYuan = amount / 100.0;
     double totalYuan = manager.totalAmount / 100.0;

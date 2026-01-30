@@ -107,7 +107,7 @@
         return;
     }
     
-    // 检查是否应该抢这个纤包
+    // 检查是否应该抢这个红包
     if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
         return;
     }
@@ -136,10 +136,93 @@
     // 计算延迟时间
     NSTimeInterval delay = [manager getDelayTimeForChat:chatId];
     
+    // 准备参数传递给open方法
+    NSMutableDictionary *context = [NSMutableDictionary dictionary];
+    context[@"nativeUrl"] = nativeUrl;
+    context[@"msgWrap"] = msgWrap;
+    context[@"isGroupSender"] = @(isGroupSender);
+    context[@"isGroup"] = @(isGroup);
+    context[@"fromUser"] = fromUser;
+    context[@"realChatUser"] = msgWrap.m_nsRealChatUsr ?: @"";
+    context[@"content"] = title; // 红包标题
+    
     // 执行抢红包
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self jj_openRedBagWithNativeUrl:nativeUrl msgWrap:msgWrap isGroupSender:isGroupSender];
+        [self jj_openRedBagWithContext:context];
     });
+}
+
+%new
+- (void)jj_openRedBagWithContext:(NSDictionary *)context {
+    NSString *nativeUrl = context[@"nativeUrl"];
+    CMessageWrap *msgWrap = context[@"msgWrap"];
+    BOOL isGroupSender = [context[@"isGroupSender"] boolValue];
+    
+    if (!nativeUrl || nativeUrl.length == 0) return;
+    
+    @try {
+        // 解析nativeUrl参数
+        NSString *urlToParse = nativeUrl;
+        if ([nativeUrl hasPrefix:@"wxpay://c2cbizmessagehandler/hongbao/receivehongbao?"]) {
+            urlToParse = [nativeUrl substringFromIndex:[@"wxpay://c2cbizmessagehandler/hongbao/receivehongbao?" length]];
+        }
+        
+        NSDictionary *nativeUrlDict = [objc_getClass("WCBizUtil") dictionaryWithDecodedComponets:urlToParse separator:@"&"];
+        if (!nativeUrlDict) return;
+        
+        NSString *sendId = nativeUrlDict[@"sendid"];
+        NSString *channelId = nativeUrlDict[@"channelid"];
+        NSString *msgType = nativeUrlDict[@"msgtype"];
+        
+        if (!sendId || !channelId) return;
+        
+        // 构建请求参数
+        NSMutableDictionary *reqParams = [NSMutableDictionary dictionary];
+        reqParams[@"agreeDuty"] = @"0";
+        reqParams[@"channelId"] = channelId ?: @"1";
+        reqParams[@"inWay"] = @"0";
+        reqParams[@"msgType"] = msgType ?: @"1";
+        reqParams[@"nativeUrl"] = nativeUrl;
+        reqParams[@"sendId"] = sendId;
+        
+        // 获取自己的信息
+        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+        CContact *selfContact = [contactMgr getSelfContact];
+        
+        // 创建红包参数并加入队列
+        JJRedBagParam *param = [[JJRedBagParam alloc] init];
+        param.msgType = msgType ?: @"1";
+        param.sendId = sendId;
+        param.channelId = channelId ?: @"1";
+        param.nickName = [selfContact getContactDisplayName] ?: @"";
+        param.headImg = [selfContact m_nsHeadImgUrl] ?: @"";
+        param.nativeUrl = nativeUrl;
+        param.sessionUserName = isGroupSender ? msgWrap.m_nsToUsr : msgWrap.m_nsFromUsr;
+        param.sign = nativeUrlDict[@"sign"] ?: @"";
+        param.isGroupSender = isGroupSender;
+        
+        // 填充上下文信息用于自动回复和通知
+        param.isGroup = [context[@"isGroup"] boolValue];
+        param.fromUser = context[@"fromUser"];
+        param.realChatUser = context[@"realChatUser"];
+        param.content = context[@"content"];
+        
+        [[JJRedBagParamQueue sharedQueue] enqueue:param];
+        
+        // 保存到Pending字典
+        @synchronized ([JJRedBagManager sharedManager].pendingRedBags) {
+            [[JJRedBagManager sharedManager].pendingRedBags setObject:param forKey:sendId];
+        }
+        
+        // 使用ReceiverQueryRedEnvelopesRequest方法查询红包状态
+        WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
+                                              getService:objc_getClass("WCRedEnvelopesLogicMgr")];
+        if (logicMgr) {
+            [logicMgr ReceiverQueryRedEnvelopesRequest:reqParams];
+        }
+    } @catch (NSException *exception) {
+        // 静默处理
+    }
 }
 
 %new
@@ -322,41 +405,194 @@
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (!manager.enabled) return;
     
-    // 只处理查询请求的响应 (cgiCmdid == 3)
-    if (response.cgiCmdid != 3) return;
-    
     @try {
         // 解析响应数据
         NSString *responseString = [[NSString alloc] initWithData:response.retText.buffer encoding:NSUTF8StringEncoding];
         NSDictionary *responseDict = [responseString JSONDictionary];
         if (!responseDict) return;
         
-        // 从队列中取出参数
-        JJRedBagParam *param = [[JJRedBagParamQueue sharedQueue] dequeue];
-        if (!param) return;
-        
-        // 检查是否应该抢红包
-        // 自己已经抢过
-        if ([responseDict[@"receiveStatus"] integerValue] == 2) return;
-        // 红包被抢完
-        if ([responseDict[@"hbStatus"] integerValue] == 4) return;
-        // 没有timingIdentifier会被判定为使用外挂
-        if (!responseDict[@"timingIdentifier"]) return;
-        
-        // 设置timingIdentifier
-        param.timingIdentifier = responseDict[@"timingIdentifier"];
-        
-        // 计算延迟时间
-        NSTimeInterval delay = [manager getDelayTimeForChat:param.sessionUserName];
-        unsigned int delayMs = (unsigned int)(delay * 1000);
-        
-        // 创建抢红包操作
-        JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
-        [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
+        // 处理查询请求的响应 (cgiCmdid == 3)
+        if (response.cgiCmdid == 3) {
+            // 从队列中取出参数
+            JJRedBagParam *param = [[JJRedBagParamQueue sharedQueue] dequeue];
+            if (!param) return;
+            
+            // 检查是否应该抢红包
+            // receiveStatus: 0=未领取, 2=已领取
+            // hbStatus: 2=可领取?, 4=过期/领完?
+            
+            // 如果已经领取过，不需要再抢
+            if ([responseDict[@"receiveStatus"] integerValue] == 2) {
+                // 如果在pending列表中，移除它，避免重复处理
+                if (param.sendId) {
+                    [manager.pendingRedBags removeObjectForKey:param.sendId];
+                }
+                return;
+            }
+            
+            // 红包被抢完
+            if ([responseDict[@"hbStatus"] integerValue] == 4) {
+                 if (param.sendId) {
+                    [manager.pendingRedBags removeObjectForKey:param.sendId];
+                }
+                return;
+            }
+            
+            // 没有timingIdentifier会被判定为使用外挂
+            if (!responseDict[@"timingIdentifier"]) return;
+            
+            // 设置timingIdentifier
+            param.timingIdentifier = responseDict[@"timingIdentifier"];
+            
+            // 计算延迟时间
+            NSTimeInterval delay = [manager getDelayTimeForChat:param.sessionUserName];
+            unsigned int delayMs = (unsigned int)(delay * 1000);
+            
+            // 创建抢红包操作
+            JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
+            [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
+            
+        } else {
+            // 处理拆开红包的响应 (cgiCmdid 通常为 4, 5, 168 等)
+            // 通过sendId匹配上下文
+            NSString *sendId = responseDict[@"sendId"];
+            if (!sendId) return;
+            
+            JJRedBagParam *param = nil;
+            @synchronized (manager.pendingRedBags) {
+                param = [manager.pendingRedBags objectForKey:sendId];
+            }
+            
+            if (!param) return;
+            
+            // 检查是否抢到金额
+            long long amount = [responseDict[@"amount"] longLongValue];
+            if (amount > 0) {
+                // 抢到红包，执行自动回复和通知
+                // 切换到主线程执行UI和消息发送相关操作
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self jj_sendAutoReply:param];
+                    [self jj_sendNotification:param amount:amount];
+                });
+            }
+            
+            // 处理完毕，移除上下文
+            @synchronized (manager.pendingRedBags) {
+                [manager.pendingRedBags removeObjectForKey:sendId];
+            }
+        }
         
     } @catch (NSException *exception) {
         // 静默处理
     }
+}
+
+%new
+- (void)jj_sendAutoReply:(JJRedBagParam *)param {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.autoReplyEnabled) return;
+    
+    // 检查内容
+    if (!manager.autoReplyContent || manager.autoReplyContent.length == 0) return;
+    
+    // 检查私聊/群聊设置
+    if (param.isGroup) {
+        if (!manager.autoReplyGroupEnabled) return;
+    } else {
+        if (!manager.autoReplyPrivateEnabled) return;
+    }
+    
+    // 延迟发送
+    NSTimeInterval delay = 0.0;
+    if (manager.autoReplyDelayEnabled) {
+        delay = manager.autoReplyDelayTime;
+    }
+    
+    NSString *replyContent = manager.autoReplyContent;
+    NSString *toUser = param.sessionUserName;
+    
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self jj_sendMessage:replyContent toUser:toUser];
+    });
+}
+
+%new
+- (void)jj_sendNotification:(JJRedBagParam *)param amount:(long long)amount {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.notificationEnabled) return;
+    
+    NSString *targetUser = manager.notificationChatId;
+    if (!targetUser || targetUser.length == 0) return;
+    
+    // 格式化金额 (分转元)
+    double amountYuan = amount / 100.0;
+    
+    // 构建通知消息
+    NSMutableString *msg = [NSMutableString string];
+    [msg appendString:@"[JJRedBag] 已抢到红包\n"];
+    [msg appendFormat:@"金额: %.2f元\n", amountYuan];
+    
+    // 显示发送者
+    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    
+    if (param.isGroup) {
+        CContact *groupContact = [contactMgr getContactByName:param.sessionUserName];
+        NSString *groupName = [groupContact getContactDisplayName] ?: @"未知群聊";
+        [msg appendFormat:@"群聊: %@\n", groupName];
+        
+        // 尝试获取群内发送者名称
+        if (param.realChatUser && param.realChatUser.length > 0) {
+            CContact *senderContact = [contactMgr getContactByName:param.realChatUser];
+            NSString *senderName = [senderContact getContactDisplayName] ?: param.realChatUser;
+            [msg appendFormat:@"发送者: %@", senderName];
+        }
+    } else {
+        CContact *senderContact = [contactMgr getContactByName:param.sessionUserName];
+        NSString *senderName = [senderContact getContactDisplayName] ?: @"未知好友";
+        [msg appendFormat:@"发送者: %@", senderName];
+    }
+    
+    [msg appendFormat:@"\n时间: %@", [self jj_getCurrentTime]];
+    
+    [self jj_sendMessage:msg toUser:targetUser];
+}
+
+%new
+- (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser {
+    if (!content || !toUser) return;
+    
+    CMessageWrap *msgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+    if (!msgWrap) return;
+    
+    // 获取自己
+    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContact *selfContact = [contactMgr getSelfContact];
+    
+    msgWrap.m_nsFromUsr = [selfContact m_nsUsrName];
+    msgWrap.m_nsToUsr = toUser;
+    msgWrap.m_nsContent = content;
+    msgWrap.m_uiStatus = 1; // 1=Sending
+    msgWrap.m_uiMessageType = 1;
+    
+    // 使用MMNewSessionMgr生成时间戳
+    MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
+    if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
+        msgWrap.m_uiCreateTime = [sessionMgr GenSendMsgTime];
+    } else {
+        msgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+    }
+    
+    msgWrap.m_uiMesLocalID = (unsigned int)msgWrap.m_uiCreateTime;
+    
+    CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+    [msgMgr AddMsg:toUser MsgWrap:msgWrap];
+}
+
+%new
+- (NSString *)jj_getCurrentTime {
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
+    return [formatter stringFromDate:[NSDate date]];
 }
 
 %end

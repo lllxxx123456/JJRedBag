@@ -529,8 +529,8 @@
     
     // 构建通知消息
     NSMutableString *msg = [NSMutableString string];
-    [msg appendString:@"[JJRedBag] 已抢到红包\n"];
-    [msg appendFormat:@"金额: %.2f元\n", amountYuan];
+    [msg appendString:@"[JJ] 红包到账\n"];
+    [msg appendFormat:@"金额：%.2f元\n", amountYuan];
     
     // 显示发送者
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
@@ -538,21 +538,21 @@
     if (param.isGroup) {
         CContact *groupContact = [contactMgr getContactByName:param.sessionUserName];
         NSString *groupName = [groupContact getContactDisplayName] ?: @"未知群聊";
-        [msg appendFormat:@"群聊: %@\n", groupName];
+        [msg appendFormat:@"来源：[群] %@\n", groupName];
         
         // 尝试获取群内发送者名称
         if (param.realChatUser && param.realChatUser.length > 0) {
             CContact *senderContact = [contactMgr getContactByName:param.realChatUser];
             NSString *senderName = [senderContact getContactDisplayName] ?: param.realChatUser;
-            [msg appendFormat:@"发送者: %@", senderName];
+            [msg appendFormat:@"用户：%@", senderName];
         }
     } else {
         CContact *senderContact = [contactMgr getContactByName:param.sessionUserName];
         NSString *senderName = [senderContact getContactDisplayName] ?: @"未知好友";
-        [msg appendFormat:@"发送者: %@", senderName];
+        [msg appendFormat:@"来源：[私] %@", senderName];
     }
     
-    [msg appendFormat:@"\n时间: %@", [self jj_getCurrentTime]];
+    [msg appendFormat:@"\n时间：%@", [self jj_getCurrentTime]];
     
     [self jj_sendMessage:msg toUser:targetUser];
 }

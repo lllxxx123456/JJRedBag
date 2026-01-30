@@ -32,6 +32,21 @@
         _grabPrivateEnabled = NO;
         _backgroundGrabEnabled = NO;
         _shakeToConfigEnabled = NO; // 默认关闭
+        
+        // 自动回复默认设置
+        _autoReplyEnabled = NO;
+        _autoReplyPrivateEnabled = NO;
+        _autoReplyGroupEnabled = NO;
+        _autoReplyDelayEnabled = NO;
+        _autoReplyDelayTime = 0.0;
+        _autoReplyContent = @"";
+        
+        // 通知默认设置
+        _notificationEnabled = NO;
+        _notificationChatId = @"";
+        _notificationChatName = @"";
+        
+        _pendingRedBags = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -52,6 +67,19 @@
     settings[@"grabPrivateEnabled"] = @(self.grabPrivateEnabled);
     settings[@"backgroundGrabEnabled"] = @(self.backgroundGrabEnabled);
     settings[@"shakeToConfigEnabled"] = @(self.shakeToConfigEnabled);
+    
+    // 自动回复
+    settings[@"autoReplyEnabled"] = @(self.autoReplyEnabled);
+    settings[@"autoReplyPrivateEnabled"] = @(self.autoReplyPrivateEnabled);
+    settings[@"autoReplyGroupEnabled"] = @(self.autoReplyGroupEnabled);
+    settings[@"autoReplyDelayEnabled"] = @(self.autoReplyDelayEnabled);
+    settings[@"autoReplyDelayTime"] = @(self.autoReplyDelayTime);
+    settings[@"autoReplyContent"] = self.autoReplyContent ?: @"";
+    
+    // 通知
+    settings[@"notificationEnabled"] = @(self.notificationEnabled);
+    settings[@"notificationChatId"] = self.notificationChatId ?: @"";
+    settings[@"notificationChatName"] = self.notificationChatName ?: @"";
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -77,6 +105,19 @@
         } else {
             self.shakeToConfigEnabled = NO; // 默认值
         }
+        
+        // 自动回复
+        self.autoReplyEnabled = [settings[@"autoReplyEnabled"] boolValue];
+        self.autoReplyPrivateEnabled = [settings[@"autoReplyPrivateEnabled"] boolValue];
+        self.autoReplyGroupEnabled = [settings[@"autoReplyGroupEnabled"] boolValue];
+        self.autoReplyDelayEnabled = [settings[@"autoReplyDelayEnabled"] boolValue];
+        self.autoReplyDelayTime = [settings[@"autoReplyDelayTime"] doubleValue];
+        self.autoReplyContent = settings[@"autoReplyContent"] ?: @"";
+        
+        // 通知
+        self.notificationEnabled = [settings[@"notificationEnabled"] boolValue];
+        self.notificationChatId = settings[@"notificationChatId"] ?: @"";
+        self.notificationChatName = settings[@"notificationChatName"] ?: @"";
     }
 }
 

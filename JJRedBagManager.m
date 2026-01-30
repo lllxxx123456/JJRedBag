@@ -28,7 +28,7 @@
         _filterKeywordEnabled = NO;
         _filterKeywords = [NSMutableArray array];
         _grabSelfEnabled = NO;
-        _grabPrivateEnabled = YES;
+        _grabPrivateEnabled = NO;
         _backgroundGrabEnabled = NO;
     }
     return self;

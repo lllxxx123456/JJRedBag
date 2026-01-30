@@ -370,6 +370,7 @@
     
     if (motion == UIEventSubtypeMotionShake) {
         JJRedBagManager *manager = [JJRedBagManager sharedManager];
+        if (!manager.shakeToConfigEnabled) return;
         
         dispatch_async(dispatch_get_main_queue(), ^{
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"JJ抢红包"

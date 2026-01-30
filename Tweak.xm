@@ -17,8 +17,8 @@
     // 适配插件归纳
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (NSClassFromString(@"WCPluginsMgr")) {
-            [[objc_getClass("WCPluginsMgr") sharedInstance] registerControllerWithTitle:@"JJ抢红包" 
-                                                                                version:@"1.0.0" 
+            [[objc_getClass("WCPluginsMgr") sharedInstance] registerControllerWithTitle:@"JJRedBag" 
+                                                                                version:@"1.0-1" 
                                                                              controller:@"JJRedBagSettingsController"];
         }
     });

@@ -92,7 +92,7 @@
     [headerView addSubview:titleLabel];
     
     UILabel *versionLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 120, headerView.bounds.size.width, 20)];
-    versionLabel.text = @"v1.0.1 仅供娱乐";
+    versionLabel.text = @"v1.0-1 仅供娱乐";
     versionLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
     versionLabel.textAlignment = NSTextAlignmentCenter;
     
@@ -140,10 +140,37 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 0) return nil;
-    if (section == 1) return @"模式设置";
-    if (section == 2) return @"高级设置";
+    // 使用 viewForHeaderInSection 代替
     return nil;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    NSString *title = nil;
+    if (section == 1) title = @"模式设置";
+    if (section == 2) title = @"其他设置";
+    
+    if (!title) return nil;
+    
+    UIView *headerView = [[UIView alloc] init];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 5, tableView.bounds.size.width - 32, 30)];
+    label.text = title;
+    label.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold]; // 加大字号
+    if (@available(iOS 13.0, *)) {
+        label.textColor = [UIColor secondaryLabelColor];
+    } else {
+        label.textColor = [UIColor grayColor];
+    }
+    [headerView addSubview:label];
+    return headerView;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    if (section == 0) return 20.0f; // 顶部留空
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled) return 0.01f;
+    
+    return 40.0f; // 加大标题高度
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

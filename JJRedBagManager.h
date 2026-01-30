@@ -42,9 +42,11 @@ typedef NS_ENUM(NSInteger, JJDelayOtherMode) {
 @property (nonatomic, copy) NSString *autoReplyContent;          // 自动回复内容
 
 // 红包通知设置
-@property (nonatomic, assign) BOOL notificationEnabled;          // 通知功能总开关
+@property (nonatomic, assign) BOOL notificationEnabled;          // 消息通知总开关 (发消息给指定人)
+@property (nonatomic, assign) BOOL localNotificationEnabled;     // 本地通知开关 (弹窗)
 @property (nonatomic, copy) NSString *notificationChatId;        // 通知发送到的会话ID
-@property (nonatomic, copy) NSString *notificationChatName;      // 通知发送到的会话名称(用于显示)
+@property (nonatomic, copy) NSString *notificationChatName;      // 通知发送到的会话名称
+@property (nonatomic, assign) long long totalAmount;             // 累计抢到金额(分)
 
 @property (nonatomic, strong) NSMutableDictionary *pendingRedBags; // 待处理红包字典 key: sendId
 

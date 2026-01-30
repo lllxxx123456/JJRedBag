@@ -2,161 +2,90 @@
 #import "JJRedBagManager.h"
 #import "JJRedBagGroupSelectController.h"
 
-#define JJ_THEME_COLOR [UIColor colorWithRed:255/255.0 green:76/255.0 blue:76/255.0 alpha:1.0]
-#define JJ_THEME_GRADIENT_START [UIColor colorWithRed:255/255.0 green:100/255.0 blue:100/255.0 alpha:1.0]
-#define JJ_THEME_GRADIENT_END [UIColor colorWithRed:255/255.0 green:60/255.0 blue:80/255.0 alpha:1.0]
-#define JJ_BG_COLOR [UIColor colorWithRed:248/255.0 green:248/255.0 blue:250/255.0 alpha:1.0]
-#define JJ_CARD_COLOR [UIColor whiteColor]
-#define JJ_TEXT_PRIMARY [UIColor colorWithRed:30/255.0 green:30/255.0 blue:40/255.0 alpha:1.0]
-#define JJ_TEXT_SECONDARY [UIColor colorWithRed:130/255.0 green:130/255.0 blue:140/255.0 alpha:1.0]
-
 @interface JJRedBagSettingsController ()
-@property (nonatomic, strong) UIScrollView *scrollView;
-@property (nonatomic, strong) UIView *containerView;
-@property (nonatomic, strong) UIView *headerView;
 @property (nonatomic, strong) UISwitch *mainSwitch;
-@property (nonatomic, strong) UILabel *statusLabel;
 @end
 
 @implementation JJRedBagSettingsController
 
 - (instancetype)init {
-    self = [super initWithStyle:UITableViewStyleGrouped];
+    // 使用 iOS 13+ 的 InsetGrouped 风格，自带卡片效果，完美适配深色模式
+    if (self = [super initWithStyle:UITableViewStyleInsetGrouped]) {
+        self.title = @"JJRedBag";
+    }
     return self;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    self.title = @"JJ抢红包";
-    self.view.backgroundColor = JJ_BG_COLOR;
-    self.tableView.backgroundColor = JJ_BG_COLOR;
-    self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-    self.tableView.showsVerticalScrollIndicator = NO;
+    // 设置主题色
+    self.view.tintColor = [UIColor systemRedColor];
     
-    if (@available(iOS 15.0, *)) {
-        self.tableView.sectionHeaderTopPadding = 0;
-    }
-    
+    // 导航栏设置
     [self setupNavigationBar];
+    
+    // 头部视图
     [self setupHeaderView];
+    
+    // 注册Cell
+    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"JJCell"];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self updateStatusLabel];
     [self.tableView reloadData];
+    // 刷新头部状态
+    [self updateHeaderStatus];
 }
 
+#pragma mark - UI Setup
+
 - (void)setupNavigationBar {
-    // 关闭按钮 - iOS 13+使用SF Symbols，低版本使用文字
-    if (@available(iOS 13.0, *)) {
-        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"xmark.circle.fill"]
-                                                                                  style:UIBarButtonItemStylePlain
-                                                                                 target:self
-                                                                                 action:@selector(dismissSelf)];
-    } else {
-        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"关闭"
-                                                                                  style:UIBarButtonItemStylePlain
-                                                                                 target:self
-                                                                                 action:@selector(dismissSelf)];
-    }
-    self.navigationItem.rightBarButtonItem.tintColor = JJ_TEXT_SECONDARY;
+    // 右上角关闭按钮
+    UIBarButtonItem *closeItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(dismissSelf)];
+    self.navigationItem.rightBarButtonItem = closeItem;
     
-    // 导航栏外观 - iOS 13+
-    if (@available(iOS 13.0, *)) {
-        UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
-        [appearance configureWithOpaqueBackground];
-        appearance.backgroundColor = JJ_BG_COLOR;
-        appearance.shadowColor = [UIColor clearColor];
-        appearance.titleTextAttributes = @{NSForegroundColorAttributeName: JJ_TEXT_PRIMARY, NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]};
-        self.navigationController.navigationBar.standardAppearance = appearance;
-        self.navigationController.navigationBar.scrollEdgeAppearance = appearance;
-    } else {
-        self.navigationController.navigationBar.barTintColor = JJ_BG_COLOR;
-        self.navigationController.navigationBar.titleTextAttributes = @{NSForegroundColorAttributeName: JJ_TEXT_PRIMARY, NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]};
-        self.navigationController.navigationBar.shadowImage = [[UIImage alloc] init];
-    }
+    // 导航栏外观
+    UINavigationBarAppearance *appearance = [[UINavigationBarAppearance alloc] init];
+    [appearance configureWithDefaultBackground];
+    self.navigationItem.standardAppearance = appearance;
+    self.navigationItem.scrollEdgeAppearance = appearance;
 }
 
 - (void)setupHeaderView {
-    self.headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 200)];
-    self.headerView.backgroundColor = [UIColor clearColor];
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 140)];
     
-    // 渐变背景卡片
-    UIView *cardView = [[UIView alloc] initWithFrame:CGRectMake(16, 16, self.view.bounds.size.width - 32, 168)];
-    cardView.backgroundColor = JJ_CARD_COLOR;
-    cardView.layer.cornerRadius = 20;
-    cardView.layer.shadowColor = [UIColor colorWithRed:255/255.0 green:76/255.0 blue:76/255.0 alpha:0.3].CGColor;
-    cardView.layer.shadowOffset = CGSizeMake(0, 8);
-    cardView.layer.shadowRadius = 20;
-    cardView.layer.shadowOpacity = 1.0;
-    [self.headerView addSubview:cardView];
+    // 顶部 Logo/Icon 区域
+    UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 60, 60)];
+    iconView.image = [UIImage systemImageNamed:@"envelope.fill"]; // 使用系统图标
+    iconView.tintColor = [UIColor systemRedColor];
+    iconView.contentMode = UIViewContentModeScaleAspectFit;
+    iconView.center = CGPointMake(headerView.center.x, 50);
+    iconView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    [headerView addSubview:iconView];
     
-    // 渐变图层
-    CAGradientLayer *gradient = [CAGradientLayer layer];
-    gradient.frame = cardView.bounds;
-    gradient.colors = @[(id)JJ_THEME_GRADIENT_START.CGColor, (id)JJ_THEME_GRADIENT_END.CGColor];
-    gradient.startPoint = CGPointMake(0, 0);
-    gradient.endPoint = CGPointMake(1, 1);
-    gradient.cornerRadius = 20;
-    [cardView.layer insertSublayer:gradient atIndex:0];
-    
-    // 红包图标
-    UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 24, 50, 50)];
-    iconLabel.text = @"🧧";
-    iconLabel.font = [UIFont systemFontOfSize:40];
-    [cardView addSubview:iconLabel];
-    
-    // 标题
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(84, 28, 200, 28)];
-    titleLabel.text = @"JJ抢红包";
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 90, headerView.bounds.size.width, 30)];
+    titleLabel.text = @"JJRedBag 抢红包";
     titleLabel.font = [UIFont systemFontOfSize:24 weight:UIFontWeightBold];
-    titleLabel.textColor = [UIColor whiteColor];
-    [cardView addSubview:titleLabel];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    titleLabel.textColor = [UIColor labelColor];
+    titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [headerView addSubview:titleLabel];
     
-    // 版本
-    UILabel *versionLabel = [[UILabel alloc] initWithFrame:CGRectMake(84, 56, 200, 20)];
-    versionLabel.text = @"v1.0.0";
-    versionLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    versionLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.7];
-    [cardView addSubview:versionLabel];
+    UILabel *versionLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 120, headerView.bounds.size.width, 20)];
+    versionLabel.text = @"v1.0.1 仅供娱乐";
+    versionLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
+    versionLabel.textAlignment = NSTextAlignmentCenter;
+    versionLabel.textColor = [UIColor secondaryLabelColor];
+    versionLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [headerView addSubview:versionLabel];
     
-    // 状态标签
-    self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 95, cardView.bounds.size.width - 100, 24)];
-    self.statusLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
-    self.statusLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.9];
-    [cardView addSubview:self.statusLabel];
-    [self updateStatusLabel];
-    
-    // 主开关
-    self.mainSwitch = [[UISwitch alloc] init];
-    self.mainSwitch.frame = CGRectMake(cardView.bounds.size.width - 75, 95, 51, 31);
-    self.mainSwitch.onTintColor = [UIColor colorWithWhite:1.0 alpha:0.3];
-    self.mainSwitch.thumbTintColor = [UIColor whiteColor];
-    self.mainSwitch.on = [JJRedBagManager sharedManager].enabled;
-    [self.mainSwitch addTarget:self action:@selector(mainSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    [cardView addSubview:self.mainSwitch];
-    
-    // 提示文字
-    UILabel *tipLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 130, cardView.bounds.size.width - 48, 30)];
-    tipLabel.text = @"仅供娱乐 · 请勿依赖 · 风险自担";
-    tipLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
-    tipLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.6];
-    tipLabel.textAlignment = NSTextAlignmentCenter;
-    [cardView addSubview:tipLabel];
-    
-    self.tableView.tableHeaderView = self.headerView;
+    self.tableView.tableHeaderView = headerView;
 }
 
-- (void)updateStatusLabel {
-    JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (manager.enabled) {
-        self.statusLabel.text = @"✓ 抢红包功能已开启";
-    } else {
-        self.statusLabel.text = @"○ 抢红包功能已关闭";
-    }
-    self.mainSwitch.on = manager.enabled;
+- (void)updateHeaderStatus {
+    // 可以在这里更新头部状态，如果需要的话
 }
 
 - (void)dismissSelf {
@@ -171,198 +100,129 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    switch (section) {
-        case 0: // 抢红包模式
-            if (manager.grabMode == JJGrabModeDelay) return 4;
-            return 2;
-        case 1: // 过滤设置
-            return 2;
-        case 2: // 其他设置
-            return 3;
-        default: return 0;
+    if (section == 0) {
+        return 1; // 总开关
+    } else if (section == 1) {
+        if (!manager.enabled) return 0; // 关闭时隐藏设置
+        // 模式设置
+        if (manager.grabMode == JJGrabModeDelay) return 4;
+        return 2;
+    } else if (section == 2) {
+        if (!manager.enabled) return 0; // 关闭时隐藏设置
+        // 其他/过滤设置
+        return 4; // 关键词过滤, 编辑关键词, 抢自己, 抢私聊
     }
+    return 0;
 }
 
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return 56;
-}
-
-- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return 50;
-}
-
-- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
-    return 10;
-}
-
-- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 50)];
-    headerView.backgroundColor = [UIColor clearColor];
-    
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(32, 20, 200, 24)];
-    titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    titleLabel.textColor = JJ_TEXT_SECONDARY;
-    
-    NSArray *titles = @[@"抢红包模式", @"过滤设置", @"其他设置"];
-    NSArray *icons = @[@"🎯", @"🔍", @"⚙️"];
-    titleLabel.text = [NSString stringWithFormat:@"%@  %@", icons[section], titles[section]];
-    
-    [headerView addSubview:titleLabel];
-    return headerView;
-}
-
-- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
-    return [[UIView alloc] init];
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == 0) return nil;
+    if (section == 1) return @"模式设置";
+    if (section == 2) return @"高级设置";
+    return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    // 使用 Value1 样式 (左边标题，右边详情/箭头)
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"JJCell"];
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-    cell.backgroundColor = [UIColor clearColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.textLabel.textColor = [UIColor labelColor];
+    cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     
-    // 创建卡片容器
-    UIView *cardView = [[UIView alloc] initWithFrame:CGRectMake(16, 2, tableView.bounds.size.width - 32, 52)];
-    cardView.backgroundColor = JJ_CARD_COLOR;
-    cardView.tag = 100;
-    
-    // 根据位置设置圆角
-    NSInteger rowCount = [self tableView:tableView numberOfRowsInSection:indexPath.section];
-    if (rowCount == 1) {
-        cardView.layer.cornerRadius = 16;
-    } else if (indexPath.row == 0) {
-        cardView.layer.cornerRadius = 16;
-        cardView.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
-    } else if (indexPath.row == rowCount - 1) {
-        cardView.layer.cornerRadius = 16;
-        cardView.layer.maskedCorners = kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
-    }
-    
-    // 添加阴影
-    if (indexPath.row == 0) {
-        cardView.layer.shadowColor = [UIColor colorWithWhite:0 alpha:0.06].CGColor;
-        cardView.layer.shadowOffset = CGSizeMake(0, 4);
-        cardView.layer.shadowRadius = 12;
-        cardView.layer.shadowOpacity = 1.0;
-    }
-    
-    [cell.contentView addSubview:cardView];
-    
-    // 标题标签
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 0, cardView.bounds.size.width - 120, 52)];
-    titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
-    titleLabel.textColor = JJ_TEXT_PRIMARY;
-    [cardView addSubview:titleLabel];
-    
-    // 详情标签
-    UILabel *detailLabel = [[UILabel alloc] initWithFrame:CGRectMake(cardView.bounds.size.width - 150, 0, 80, 52)];
-    detailLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightRegular];
-    detailLabel.textColor = JJ_TEXT_SECONDARY;
-    detailLabel.textAlignment = NSTextAlignmentRight;
-    [cardView addSubview:detailLabel];
-    
-    // 箭头图标
-    UIImageView *arrowView = [[UIImageView alloc] initWithFrame:CGRectMake(cardView.bounds.size.width - 36, 18, 16, 16)];
-    if (@available(iOS 13.0, *)) {
-        arrowView.image = [UIImage systemImageNamed:@"chevron.right"];
-    } else {
-        arrowView.image = nil;
-    }
-    arrowView.tintColor = JJ_TEXT_SECONDARY;
-    arrowView.contentMode = UIViewContentModeScaleAspectFit;
-    
-    // 开关
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(cardView.bounds.size.width - 65, 11, 51, 31)];
-    sw.onTintColor = JJ_THEME_COLOR;
-    
-    // 分隔线
-    if (indexPath.row < rowCount - 1) {
-        UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(20, 51, cardView.bounds.size.width - 40, 0.5)];
-        separator.backgroundColor = [UIColor colorWithWhite:0 alpha:0.05];
-        [cardView addSubview:separator];
-    }
-    
-    // 配置内容
-    switch (indexPath.section) {
-        case 0: // 抢红包模式
-            switch (indexPath.row) {
-                case 0:
-                    titleLabel.text = @"抢红包模式";
-                    if (manager.grabMode == JJGrabModeExclude) detailLabel.text = @"不抢群";
-                    else if (manager.grabMode == JJGrabModeOnly) detailLabel.text = @"只抢群";
-                    else detailLabel.text = @"延迟抢";
-                    [cardView addSubview:arrowView];
-                    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-                    break;
-                case 1:
-                    titleLabel.text = @"选择群聊";
-                    detailLabel.text = [NSString stringWithFormat:@"%lu个", (unsigned long)[self getSelectedGroupCount]];
-                    [cardView addSubview:arrowView];
-                    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-                    break;
-                case 2:
-                    titleLabel.text = @"其余群处理";
-                    detailLabel.text = manager.delayOtherMode == JJDelayOtherModeNoDelay ? @"无延迟抢" : @"不抢";
-                    [cardView addSubview:arrowView];
-                    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-                    break;
-                case 3:
-                    titleLabel.text = @"延迟时间";
-                    detailLabel.text = [NSString stringWithFormat:@"%.1f秒", manager.delayTime];
-                    [cardView addSubview:arrowView];
-                    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-                    break;
+    if (indexPath.section == 0) {
+        // 总开关
+        cell.textLabel.text = @"开启抢红包";
+        cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.enabled;
+        [sw addTarget:self action:@selector(mainSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        self.mainSwitch = sw;
+        
+    } else if (indexPath.section == 1) {
+        // 模式设置
+        if (indexPath.row == 0) {
+            cell.textLabel.text = @"抢红包模式";
+            if (manager.grabMode == JJGrabModeExclude) cell.detailTextLabel.text = @"黑名单模式 (不抢)";
+            else if (manager.grabMode == JJGrabModeOnly) cell.detailTextLabel.text = @"白名单模式 (只抢)";
+            else if (manager.grabMode == JJGrabModeDelay) cell.detailTextLabel.text = @"延迟模式";
+            else cell.detailTextLabel.text = @"全抢模式";
+        } else if (indexPath.row == 1) {
+            cell.textLabel.text = @"群聊管理";
+            NSUInteger count = [self getSelectedGroupCount];
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"已选 %lu 个群", (unsigned long)count];
+        } else if (indexPath.row == 2) {
+            cell.textLabel.text = @"非列表群处理";
+            cell.detailTextLabel.text = manager.delayOtherMode == JJDelayOtherModeNoDelay ? @"无延迟抢" : @"不抢";
+        } else if (indexPath.row == 3) {
+            cell.textLabel.text = @"延迟时间";
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"%.1f 秒", manager.delayTime];
+        }
+        
+    } else if (indexPath.section == 2) {
+        // 高级设置
+        if (indexPath.row == 0) {
+            cell.textLabel.text = @"关键词过滤";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.filterKeywordEnabled;
+            [sw addTarget:self action:@selector(filterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (indexPath.row == 1) {
+            cell.textLabel.text = @"编辑关键词";
+            cell.detailTextLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu 个", (unsigned long)manager.filterKeywords.count] : @"未设置";
+            if (!manager.filterKeywordEnabled) {
+                cell.textLabel.textColor = [UIColor tertiaryLabelColor];
+                cell.detailTextLabel.textColor = [UIColor tertiaryLabelColor];
+                cell.userInteractionEnabled = NO;
             }
-            break;
-            
-        case 1: // 过滤设置
-            switch (indexPath.row) {
-                case 0:
-                    titleLabel.text = @"关键词过滤";
-                    sw.on = manager.filterKeywordEnabled;
-                    sw.tag = 100;
-                    [sw addTarget:self action:@selector(filterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-                    [cardView addSubview:sw];
-                    break;
-                case 1:
-                    titleLabel.text = @"编辑关键词";
-                    detailLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu个", (unsigned long)manager.filterKeywords.count] : @"未设置";
-                    [cardView addSubview:arrowView];
-                    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-                    break;
-            }
-            break;
-            
-        case 2: // 其他设置
-            switch (indexPath.row) {
-                case 0:
-                    titleLabel.text = @"抢自己的红包";
-                    sw.on = manager.grabSelfEnabled;
-                    sw.tag = 200;
-                    [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-                    [cardView addSubview:sw];
-                    break;
-                case 1:
-                    titleLabel.text = @"抢私聊红包";
-                    sw.on = manager.grabPrivateEnabled;
-                    sw.tag = 201;
-                    [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-                    [cardView addSubview:sw];
-                    break;
-                case 2:
-                    titleLabel.text = @"后台/锁屏抢";
-                    sw.on = manager.backgroundGrabEnabled;
-                    sw.tag = 202;
-                    [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-                    [cardView addSubview:sw];
-                    break;
-            }
-            break;
+        } else if (indexPath.row == 2) {
+            cell.textLabel.text = @"抢自己的红包";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.grabSelfEnabled;
+            sw.tag = 200;
+            [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (indexPath.row == 3) {
+            cell.textLabel.text = @"抢私聊红包";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.grabPrivateEnabled;
+            sw.tag = 201;
+            [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        }
     }
     
     return cell;
 }
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    
+    if (indexPath.section == 1) {
+        if (indexPath.row == 0) [self showModeSelector];
+        else if (indexPath.row == 1) [self showGroupSelectForMode:manager.grabMode];
+        else if (indexPath.row == 2) [self showDelayOtherModeSelector];
+        else if (indexPath.row == 3) [self showDelayTimeInput];
+    } else if (indexPath.section == 2) {
+        if (indexPath.row == 1) [self showKeywordEditor];
+    }
+}
+
+#pragma mark - Logic Helpers
 
 - (NSUInteger)getSelectedGroupCount {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
@@ -372,28 +232,6 @@
     return 0;
 }
 
-#pragma mark - TableView Delegate
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    
-    JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    
-    switch (indexPath.section) {
-        case 0:
-            switch (indexPath.row) {
-                case 0: [self showModeSelector]; break;
-                case 1: [self showGroupSelectForMode:manager.grabMode]; break;
-                case 2: [self showDelayOtherModeSelector]; break;
-                case 3: [self showDelayTimeInput]; break;
-            }
-            break;
-        case 1:
-            if (indexPath.row == 1) [self showKeywordEditor];
-            break;
-    }
-}
-
 #pragma mark - Actions
 
 - (void)mainSwitchChanged:(UISwitch *)sender {
@@ -401,16 +239,18 @@
     
     if (sender.on && !manager.hasShownDisclaimer) {
         sender.on = NO;
-        [manager showDisclaimerAlertWithCompletion:^(BOOL accepted) {
+        [self showDisclaimerAlertWithCompletion:^(BOOL accepted) {
             if (accepted) {
-                sender.on = YES;
-                [self updateStatusLabel];
+                manager.enabled = YES;
+                [manager saveSettings];
+                [self.tableView reloadData];
             }
         }];
     } else {
         manager.enabled = sender.on;
         [manager saveSettings];
-        [self updateStatusLabel];
+        // 重新加载以显示/隐藏其他选项
+        [self.tableView reloadData];
     }
 }
 
@@ -418,149 +258,141 @@
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     manager.filterKeywordEnabled = sender.on;
     [manager saveSettings];
+    // 刷新"编辑关键词"行的状态
+    [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:1 inSection:2]] withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (void)otherSwitchChanged:(UISwitch *)sender {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    switch (sender.tag) {
-        case 200: manager.grabSelfEnabled = sender.on; break;
-        case 201: manager.grabPrivateEnabled = sender.on; break;
-        case 202: manager.backgroundGrabEnabled = sender.on; break;
-    }
+    if (sender.tag == 200) manager.grabSelfEnabled = sender.on;
+    if (sender.tag == 201) manager.grabPrivateEnabled = sender.on;
     [manager saveSettings];
+}
+
+#pragma mark - Alerts
+
+- (void)showDisclaimerAlertWithCompletion:(void(^)(BOOL accepted))completion {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"免责声明"
+                                                                   message:@"本插件仅供学习和娱乐使用。\n\n使用本插件可能导致微信账号被封禁等风险，风险需由您自行承担。\n\n作者不对任何后果负责。"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        if (completion) completion(NO);
+    }]];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"我已知晓并承担风险" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        JJRedBagManager *manager = [JJRedBagManager sharedManager];
+        manager.hasShownDisclaimer = YES;
+        if (completion) completion(YES);
+    }]];
+    
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)showModeSelector {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择模式" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择抢红包模式"
-                                                                   message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    
-    UIAlertAction *excludeAction = [UIAlertAction actionWithTitle:@"🚫 不抢群模式" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        manager.grabMode = JJGrabModeExclude;
+    void (^handler)(JJGrabMode) = ^(JJGrabMode mode) {
+        manager.grabMode = mode;
         [manager saveSettings];
         [self.tableView reloadData];
-    }];
+    };
     
-    UIAlertAction *onlyAction = [UIAlertAction actionWithTitle:@"✅ 只抢群模式" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        manager.grabMode = JJGrabModeOnly;
-        [manager saveSettings];
-        [self.tableView reloadData];
-    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"黑名单模式 (不抢选中的群)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeExclude); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"白名单模式 (只抢选中的群)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeOnly); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"延迟模式 (选中的群延迟抢)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeDelay); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"全抢模式 (所有群都抢)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { handler(JJGrabModeNone); }]];
     
-    UIAlertAction *delayAction = [UIAlertAction actionWithTitle:@"⏱️ 延迟抢模式" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        manager.grabMode = JJGrabModeDelay;
-        [manager saveSettings];
-        [self.tableView reloadData];
-    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil];
-    
-    [alert addAction:excludeAction];
-    [alert addAction:onlyAction];
-    [alert addAction:delayAction];
-    [alert addAction:cancelAction];
+    // 适配 iPad
+    if (alert.popoverPresentationController) {
+        alert.popoverPresentationController.sourceView = self.view;
+        alert.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width/2, self.view.bounds.size.height/2, 0, 0);
+        alert.popoverPresentationController.permittedArrowDirections = 0;
+    }
     
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)showGroupSelectForMode:(JJGrabMode)mode {
-    JJRedBagGroupSelectController *groupVC = [[JJRedBagGroupSelectController alloc] initWithMode:mode];
-    [self.navigationController pushViewController:groupVC animated:YES];
+    JJRedBagGroupSelectController *vc = [[JJRedBagGroupSelectController alloc] initWithMode:mode];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)showDelayOtherModeSelector {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"非延迟列表群的处理" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"其余群处理方式"
-                                                                   message:@"选择延迟抢群之外的群如何处理"
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    
-    UIAlertAction *noDelayAction = [UIAlertAction actionWithTitle:@"⚡ 其余无延迟抢" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"无延迟抢" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         manager.delayOtherMode = JJDelayOtherModeNoDelay;
         [manager saveSettings];
         [self.tableView reloadData];
-    }];
+    }]];
     
-    UIAlertAction *noGrabAction = [UIAlertAction actionWithTitle:@"🚫 其余直接不抢" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"不抢" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         manager.delayOtherMode = JJDelayOtherModeNoGrab;
         [manager saveSettings];
         [self.tableView reloadData];
-    }];
+    }]];
     
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     
-    [alert addAction:noDelayAction];
-    [alert addAction:noGrabAction];
-    [alert addAction:cancelAction];
+    if (alert.popoverPresentationController) {
+        alert.popoverPresentationController.sourceView = self.view;
+        alert.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width/2, self.view.bounds.size.height/2, 0, 0);
+        alert.popoverPresentationController.permittedArrowDirections = 0;
+    }
     
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)showDelayTimeInput {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"设置延迟时间" message:@"请输入秒数 (支持小数)" preferredStyle:UIAlertControllerStyleAlert];
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"设置延迟时间"
-                                                                   message:@"请输入延迟抢红包的时间（秒）"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    
-    [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
-        textField.placeholder = @"延迟秒数";
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"1.0";
         textField.keyboardType = UIKeyboardTypeDecimalPad;
         textField.text = [NSString stringWithFormat:@"%.1f", manager.delayTime];
     }];
     
-    UIAlertAction *confirmAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        NSString *text = alert.textFields.firstObject.text;
-        NSTimeInterval delay = [text doubleValue];
-        if (delay > 0) {
-            manager.delayTime = delay;
-            [manager saveSettings];
-            [self.tableView reloadData];
-        }
-    }];
-    
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil];
-    
-    [alert addAction:confirmAction];
-    [alert addAction:cancelAction];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        UITextField *field = alert.textFields.firstObject;
+        double val = [field.text doubleValue];
+        if (val < 0) val = 0;
+        manager.delayTime = val;
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
     
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)showKeywordEditor {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    NSString *currentKeywords = [manager.filterKeywords componentsJoinedByString:@","];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"编辑关键词" message:@"用逗号分隔，包含任一关键词的红包将不抢" preferredStyle:UIAlertControllerStyleAlert];
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"编辑过滤关键词"
-                                                                   message:@"多个关键词用逗号分隔\n包含这些关键词的红包将不抢"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    
-    [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
-        textField.placeholder = @"例如: 专属,测试,内部";
-        textField.text = currentKeywords;
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"测挂,专属";
+        textField.text = [manager.filterKeywords componentsJoinedByString:@","];
     }];
     
-    UIAlertAction *confirmAction = [UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *text = alert.textFields.firstObject.text;
-        NSArray *keywords = [text componentsSeparatedByString:@","];
-        NSMutableArray *validKeywords = [NSMutableArray array];
-        for (NSString *keyword in keywords) {
-            NSString *trimmed = [keyword stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if (trimmed.length > 0) {
-                [validKeywords addObject:trimmed];
-            }
+        NSArray *raw = [text componentsSeparatedByString:@","];
+        NSMutableArray *clean = [NSMutableArray array];
+        for (NSString *s in raw) {
+            NSString *trimmed = [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (trimmed.length > 0) [clean addObject:trimmed];
         }
-        manager.filterKeywords = validKeywords;
+        manager.filterKeywords = clean;
         [manager saveSettings];
         [self.tableView reloadData];
-    }];
-    
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil];
-    
-    [alert addAction:confirmAction];
-    [alert addAction:cancelAction];
+    }]];
     
     [self presentViewController:alert animated:YES completion:nil];
 }

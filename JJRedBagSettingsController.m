@@ -203,19 +203,19 @@
             sw.on = manager.filterKeywordEnabled;
             [sw addTarget:self action:@selector(filterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = sw;
-            cellif (@available(iOS 13.0, *)) {
-                    .accessoryType = UITableViewCellAccessoryNone;
-            cell    .selectionStyle = UITableViewCellSelectionStyleNone;
-                } else {
-                    cell.textLabel.textColor = [UIColor lightGrayColor];
-                    cell.detailTextLabel.textColor = [UIColor lightGrayColor];
-                }
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (indexPath.row == 1) {
             cell.textLabel.text = @"编辑关键词";
             cell.detailTextLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu 个", (unsigned long)manager.filterKeywords.count] : @"未设置";
             if (!manager.filterKeywordEnabled) {
-                cell.textLabel.textColor = [UIColor tertiaryLabelColor];
-                cell.detailTextLabel.textColor = [UIColor tertiaryLabelColor];
+                if (@available(iOS 13.0, *)) {
+                    cell.textLabel.textColor = [UIColor tertiaryLabelColor];
+                    cell.detailTextLabel.textColor = [UIColor tertiaryLabelColor];
+                } else {
+                    cell.textLabel.textColor = [UIColor lightGrayColor];
+                    cell.detailTextLabel.textColor = [UIColor lightGrayColor];
+                }
                 cell.userInteractionEnabled = NO;
             }
         } else if (indexPath.row == 2) {

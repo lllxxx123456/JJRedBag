@@ -1,185 +1,143 @@
 #import "JJRedBagGroupSelectController.h"
 #import "WeChatHeaders.h"
+#import <objc/runtime.h>
 
-@interface JJRedBagGroupSelectController ()
+@interface JJRedBagGroupSelectController () <ContactSelectViewDelegate>
 @property (nonatomic, assign) JJGrabMode mode;
-@property (nonatomic, strong) NSMutableArray *allGroups;
-@property (nonatomic, strong) NSMutableArray *selectedGroups;
+@property (nonatomic, strong) ContactSelectView *selectView;
+@property (nonatomic, strong) MMUIViewController *helper;
 @end
 
 @implementation JJRedBagGroupSelectController
 
 - (instancetype)initWithMode:(JJGrabMode)mode {
-    if (self = [super initWithStyle:UITableViewStyleGrouped]) {
+    if (self = [super initWithNibName:nil bundle:nil]) {
         _mode = mode;
-        _allGroups = [NSMutableArray array];
-        _selectedGroups = [NSMutableArray array];
+        // 初始化一个 MMUIViewController 实例用于消息转发，因为 ContactSelectView 可能依赖它的一些方法
+        _helper = [[objc_getClass("MMUIViewController") alloc] init];
     }
     return self;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.view.backgroundColor = [UIColor systemBackgroundColor];
     
-    switch (self.mode) {
-        case JJGrabModeExclude:
-            self.title = @"选择不抢群";
-            self.selectedGroups = [[JJRedBagManager sharedManager].excludeGroups mutableCopy];
-            break;
-        case JJGrabModeOnly:
-            self.title = @"选择只抢群";
-            self.selectedGroups = [[JJRedBagManager sharedManager].onlyGroups mutableCopy];
-            break;
-        case JJGrabModeDelay:
-            self.title = @"选择延迟抢群";
-            self.selectedGroups = [[JJRedBagManager sharedManager].delayGroups mutableCopy];
-            break;
-        default:
-            break;
-    }
-    
-    if (!self.selectedGroups) {
-        self.selectedGroups = [NSMutableArray array];
-    }
-    
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" 
-                                                                              style:UIBarButtonItemStyleDone 
-                                                                             target:self 
-                                                                             action:@selector(saveSelection)];
-    
-    [self loadGroups];
+    [self setupTitle];
+    [self initSelectView];
+    [self updateRightBarButtonWithCount:[self getInitialCount]];
 }
 
-- (void)loadGroups {
-    // 获取微信群聊列表
-    @try {
-        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-        if (contactMgr) {
-            NSArray *groups = [contactMgr getContactsWithGroupScene:2];
-            if (!groups) {
-                groups = [contactMgr getAllGroups];
-            }
-            if (!groups) {
-                // 尝试其他方法获取群聊
-                groups = [contactMgr getGroupContacts];
-            }
-            
-            for (CContact *contact in groups) {
-                if ([contact isKindOfClass:objc_getClass("CContact")]) {
-                    NSString *userName = nil;
-                    NSString *nickName = nil;
-                    
-                    if ([contact respondsToSelector:@selector(m_nsUsrName)]) {
-                        userName = [contact m_nsUsrName];
-                    }
-                    if ([contact respondsToSelector:@selector(m_nsNickName)]) {
-                        nickName = [contact m_nsNickName];
-                    }
-                    
-                    if (userName && [userName hasSuffix:@"@chatroom"]) {
-                        [self.allGroups addObject:@{
-                            @"userName": userName ?: @"",
-                            @"nickName": nickName ?: @"未命名群聊"
-                        }];
-                    }
-                }
-            }
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+}
+
+- (void)setupTitle {
+    switch (self.mode) {
+        case JJGrabModeExclude: self.title = @"选择不抢群"; break;
+        case JJGrabModeOnly: self.title = @"选择只抢群"; break;
+        case JJGrabModeDelay: self.title = @"选择延迟抢群"; break;
+        default: self.title = @"选择群聊"; break;
+    }
+}
+
+- (void)initSelectView {
+    // 使用 ContactSelectView
+    self.selectView = [[objc_getClass("ContactSelectView") alloc] initWithFrame:self.view.bounds delegate:self];
+    
+    // 设置模式为群聊选择
+    self.selectView.m_uiGroupScene = 5; 
+    self.selectView.m_bMultiSelect = YES;
+    [self.selectView initData:5];
+    
+    // 隐藏不需要的选项
+    self.selectView.m_bShowHistoryGroup = NO;
+    self.selectView.m_bShowRadarCreateRoom = NO;
+    self.selectView.m_bShowContactTag = NO;
+    self.selectView.m_bShowSelectFromGroup = NO;
+    
+    [self.selectView initView];
+    [self.view addSubview:self.selectView];
+    
+    // 恢复已选中的联系人
+    [self loadExistingSelection];
+}
+
+- (void)loadExistingSelection {
+    NSArray *currentList = [self getCurrentList];
+    if (currentList.count == 0) return;
+    
+    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    if (!contactMgr) return;
+    
+    for (NSString *userName in currentList) {
+        CContact *contact = [contactMgr getContactByName:userName];
+        if (contact) {
+            [self.selectView addSelect:contact];
         }
-    } @catch (NSException *exception) {
-        // 静默处理
     }
-    
-    // 如果没有获取到群聊，添加提示
-    if (self.allGroups.count == 0) {
-        [self.allGroups addObject:@{
-            @"userName": @"",
-            @"nickName": @"暂未获取到群聊，请使用FLEX抓取"
-        }];
-    }
-    
-    [self.tableView reloadData];
 }
 
-- (void)saveSelection {
+- (NSArray *)getCurrentList {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    
     switch (self.mode) {
-        case JJGrabModeExclude:
-            manager.excludeGroups = self.selectedGroups;
-            break;
-        case JJGrabModeOnly:
-            manager.onlyGroups = self.selectedGroups;
-            break;
-        case JJGrabModeDelay:
-            manager.delayGroups = self.selectedGroups;
-            break;
-        default:
-            break;
+        case JJGrabModeExclude: return manager.excludeGroups;
+        case JJGrabModeOnly: return manager.onlyGroups;
+        case JJGrabModeDelay: return manager.delayGroups;
+        default: return @[];
+    }
+}
+
+- (NSUInteger)getInitialCount {
+    return [[self getCurrentList] count];
+}
+
+- (void)updateRightBarButtonWithCount:(NSUInteger)count {
+    NSString *title = count > 0 ? [NSString stringWithFormat:@"确定(%lu)", (unsigned long)count] : @"确定";
+    UIBarButtonItem *btn = [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStyleDone target:self action:@selector(onDone)];
+    btn.tintColor = [UIColor systemGreenColor];
+    self.navigationItem.rightBarButtonItem = btn;
+}
+
+- (void)onDone {
+    // 获取选中的用户名列表
+    NSArray *selectedUserNames = [self.selectView.m_dicMultiSelect allKeys];
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    switch (self.mode) {
+        case JJGrabModeExclude: manager.excludeGroups = [selectedUserNames mutableCopy]; break;
+        case JJGrabModeOnly: manager.onlyGroups = [selectedUserNames mutableCopy]; break;
+        case JJGrabModeDelay: manager.delayGroups = [selectedUserNames mutableCopy]; break;
+        default: break;
     }
     
     [manager saveSettings];
     [self.navigationController popViewControllerAnimated:YES];
 }
 
-#pragma mark - TableView DataSource
+#pragma mark - ContactSelectViewDelegate
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 1;
+- (void)onSelectContact:(CContact *)contact {
+    // 当选择发生变化时，更新右上角的计数
+    [self updateRightBarButtonWithCount:[self.selectView.m_dicMultiSelect count]];
 }
 
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.allGroups.count;
+- (void)onMultiSelectGroupCancel {
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return @"选择群聊（点击选中/取消）";
+#pragma mark - Forwarding
+
+- (UIViewController *)getViewController {
+    return self;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return [NSString stringWithFormat:@"已选择 %lu 个群聊", (unsigned long)self.selectedGroups.count];
-}
-
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    static NSString *cellId = @"GroupCell";
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cellId];
+// 消息转发给 MMUIViewController，处理一些 ContactSelectView 可能调用的内部方法
+- (id)forwardingTargetForSelector:(SEL)aSelector {
+    if ([self.helper respondsToSelector:aSelector]) {
+        return self.helper;
     }
-    
-    NSDictionary *group = self.allGroups[indexPath.row];
-    NSString *userName = group[@"userName"];
-    NSString *nickName = group[@"nickName"];
-    
-    cell.textLabel.text = nickName;
-    cell.detailTextLabel.text = userName;
-    cell.detailTextLabel.textColor = [UIColor grayColor];
-    
-    if ([self.selectedGroups containsObject:userName]) {
-        cell.accessoryType = UITableViewCellAccessoryCheckmark;
-    } else {
-        cell.accessoryType = UITableViewCellAccessoryNone;
-    }
-    
-    return cell;
-}
-
-#pragma mark - TableView Delegate
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    
-    NSDictionary *group = self.allGroups[indexPath.row];
-    NSString *userName = group[@"userName"];
-    
-    if (userName.length == 0) return;
-    
-    if ([self.selectedGroups containsObject:userName]) {
-        [self.selectedGroups removeObject:userName];
-    } else {
-        [self.selectedGroups addObject:userName];
-    }
-    
-    [tableView reloadData];
+    return [super forwardingTargetForSelector:aSelector];
 }
 
 @end

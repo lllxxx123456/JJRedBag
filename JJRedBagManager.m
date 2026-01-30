@@ -78,8 +78,10 @@
     
     // 通知
     settings[@"notificationEnabled"] = @(self.notificationEnabled);
+    settings[@"localNotificationEnabled"] = @(self.localNotificationEnabled);
     settings[@"notificationChatId"] = self.notificationChatId ?: @"";
     settings[@"notificationChatName"] = self.notificationChatName ?: @"";
+    settings[@"totalAmount"] = @(self.totalAmount);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -116,8 +118,10 @@
         
         // 通知
         self.notificationEnabled = [settings[@"notificationEnabled"] boolValue];
+        self.localNotificationEnabled = [settings[@"localNotificationEnabled"] boolValue];
         self.notificationChatId = settings[@"notificationChatId"] ?: @"";
         self.notificationChatName = settings[@"notificationChatName"] ?: @"";
+        self.totalAmount = [settings[@"totalAmount"] longLongValue];
     }
 }
 

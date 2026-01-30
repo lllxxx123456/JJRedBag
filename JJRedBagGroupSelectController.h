@@ -1,7 +1,7 @@
 #import <UIKit/UIKit.h>
 #import "JJRedBagManager.h"
 
-@interface JJRedBagGroupSelectController : UITableViewController
+@interface JJRedBagGroupSelectController : UIViewController
 
 - (instancetype)initWithMode:(JJGrabMode)mode;
 

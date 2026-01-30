@@ -66,7 +66,7 @@
     [headerView addSubview:iconView];
     
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 90, headerView.bounds.size.width, 30)];
-    titleLabel.text = @"JJRedBag 抢红包";
+    titleLabel.text = @"JJRedBag";
     titleLabel.font = [UIFont systemFontOfSize:24 weight:UIFontWeightBold];
     titleLabel.textAlignment = NSTextAlignmentCenter;
     titleLabel.textColor = [UIColor labelColor];
@@ -398,3 +398,4 @@
 }
 
 @end
+

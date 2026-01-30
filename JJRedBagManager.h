@@ -31,6 +31,7 @@ typedef NS_ENUM(NSInteger, JJDelayOtherMode) {
 @property (nonatomic, assign) BOOL grabSelfEnabled;            // 抢自己发的红包
 @property (nonatomic, assign) BOOL grabPrivateEnabled;         // 抢私信红包
 @property (nonatomic, assign) BOOL backgroundGrabEnabled;      // 后台和锁屏自动抢
+@property (nonatomic, assign) BOOL shakeToConfigEnabled;       // 摇一摇呼出配置开关
 
 + (instancetype)sharedManager;
 

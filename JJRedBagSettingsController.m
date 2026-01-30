@@ -207,7 +207,7 @@
     
     if (indexPath.section == 0) {
         // 总开关
-        cell.textLabel.text = @"开启抢红包";
+        cell.textLabel.text = @"功能开关";
         cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -221,20 +221,20 @@
     } else if (indexPath.section == 1) {
         // 模式设置
         if (indexPath.row == 0) {
-            cell.textLabel.text = @"抢红包模式";
+            cell.textLabel.text = @"抢包模式";
             if (manager.grabMode == JJGrabModeExclude) cell.detailTextLabel.text = @"黑名单模式 (不抢)";
             else if (manager.grabMode == JJGrabModeOnly) cell.detailTextLabel.text = @"白名单模式 (只抢)";
             else if (manager.grabMode == JJGrabModeDelay) cell.detailTextLabel.text = @"延迟模式";
             else cell.detailTextLabel.text = @"全抢模式";
         } else if (indexPath.row == 1) {
-            cell.textLabel.text = @"群聊管理";
+            cell.textLabel.text = @"群聊设置";
             NSUInteger count = [self getSelectedGroupCount];
             cell.detailTextLabel.text = [NSString stringWithFormat:@"已选 %lu 个群", (unsigned long)count];
         } else if (indexPath.row == 2) {
-            cell.textLabel.text = @"非列表群处理";
+            cell.textLabel.text = @"其他群聊";
             cell.detailTextLabel.text = manager.delayOtherMode == JJDelayOtherModeNoDelay ? @"无延迟抢" : @"不抢";
         } else if (indexPath.row == 3) {
-            cell.textLabel.text = @"延迟时间";
+            cell.textLabel.text = @"延迟秒数";
             cell.detailTextLabel.text = [NSString stringWithFormat:@"%.1f 秒", manager.delayTime];
         }
         
@@ -256,7 +256,7 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 1) {
-            cell.textLabel.text = @"私聊自动回复";
+            cell.textLabel.text = @"私聊回复";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.autoReplyPrivateEnabled;
             sw.tag = 301;
@@ -265,7 +265,7 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 2) {
-            cell.textLabel.text = @"群聊自动回复";
+            cell.textLabel.text = @"群聊回复";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.autoReplyGroupEnabled;
             sw.tag = 302;
@@ -283,7 +283,7 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 4) {
-            cell.textLabel.text = @"延迟时间";
+            cell.textLabel.text = @"回复延迟";
             cell.detailTextLabel.text = [NSString stringWithFormat:@"%.1f 秒", manager.autoReplyDelayTime];
         } else if (row == 5) {
             cell.textLabel.text = @"回复内容";
@@ -292,7 +292,7 @@
     } else if (indexPath.section == 3) {
         // 红包通知设置
         if (indexPath.row == 0) {
-            cell.textLabel.text = @"已抢红包通知";
+            cell.textLabel.text = @"红包通知";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.notificationEnabled;
             sw.tag = 400;
@@ -316,7 +316,7 @@
         }
         
         if (row == 0) {
-            cell.textLabel.text = @"关键词过滤";
+            cell.textLabel.text = @"过滤开关";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.filterKeywordEnabled;
             [sw addTarget:self action:@selector(filterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
@@ -324,10 +324,10 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 1) {
-            cell.textLabel.text = @"编辑关键词";
+            cell.textLabel.text = @"编辑词库";
             cell.detailTextLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu 个", (unsigned long)manager.filterKeywords.count] : @"未设置";
         } else if (row == 2) {
-            cell.textLabel.text = @"抢自己的红包";
+            cell.textLabel.text = @"抢自己包";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.grabSelfEnabled;
             sw.tag = 200;
@@ -336,7 +336,7 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 3) {
-            cell.textLabel.text = @"抢私聊红包";
+            cell.textLabel.text = @"抢私聊包";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.grabPrivateEnabled;
             sw.tag = 201;
@@ -345,7 +345,7 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 4) {
-            cell.textLabel.text = @"后台和锁屏自动抢";
+            cell.textLabel.text = @"后台抢包";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.backgroundGrabEnabled;
             sw.tag = 202;
@@ -354,7 +354,7 @@
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (row == 5) {
-            cell.textLabel.text = @"摇一摇呼出配置";
+            cell.textLabel.text = @"快捷配置";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.shakeToConfigEnabled;
             sw.tag = 203;

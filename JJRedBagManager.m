@@ -202,7 +202,7 @@
         
         // 倒计时逻辑
         __block int countdown = 3;
-        NSTimer *timer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
+        [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
             countdown--;
             if (countdown > 0) {
                 [confirmAction setValue:[NSString stringWithFormat:@"我已知晓并承担风险 (%d)", countdown] forKey:@"title"];

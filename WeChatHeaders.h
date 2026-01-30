@@ -141,6 +141,40 @@
 - (void)reloadTableData;
 @end
 
+@interface MMUIViewController : UIViewController
+@end
+
+@protocol ContactSelectViewDelegate <NSObject>
+@optional
+- (void)onSelectContact:(CContact *)contact;
+- (void)onMultiSelectGroupCancel;
+- (void)onMultiSelectGroupReturn:(NSArray *)arg1;
+@end
+
+@interface ContactsDataLogic : NSObject
+@end
+
+@interface ContactSelectView : UIView
+@property (nonatomic, assign) BOOL m_bMultiSelect;
+@property (nonatomic, assign) unsigned int m_uiGroupScene;
+@property (nonatomic, assign) BOOL m_bShowHistoryGroup;
+@property (nonatomic, assign) BOOL m_bShowRadarCreateRoom;
+@property (nonatomic, assign) BOOL m_bShowContactTag;
+@property (nonatomic, assign) BOOL m_bShowSelectFromGroup;
+@property (nonatomic, strong) NSMutableDictionary *m_dicMultiSelect;
+@property (nonatomic, strong) NSDictionary *m_dicExistContact;
+@property (nonatomic, strong) NSDictionary *m_dicDisabledContact;
+@property (nonatomic, strong) ContactsDataLogic *m_contactsDataLogic;
+
+- (id)initWithFrame:(CGRect)frame delegate:(id)delegate;
+- (void)initData:(unsigned int)arg1;
+- (void)initView;
+- (void)addSelect:(id)arg1;
+- (void)removeSelect:(id)arg1;
+- (BOOL)isSelected:(id)arg1;
+- (NSUInteger)getTotalSelectCount;
+@end
+
 // 抢红包相关的数据结构
 @interface WCRedEnvelopesControlData : NSObject
 @property (nonatomic, copy) NSString *m_oSelectedMessageWrap;

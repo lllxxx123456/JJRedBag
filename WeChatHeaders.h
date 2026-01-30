@@ -41,10 +41,12 @@
 @interface CMessageWrap : NSObject
 @property (nonatomic, copy) NSString *m_nsFromUsr;
 @property (nonatomic, copy) NSString *m_nsToUsr;
+@property (nonatomic, copy) NSString *m_nsRealChatUsr; // 群聊发送者
 @property (nonatomic, copy) NSString *m_nsContent;
 @property (nonatomic, assign) unsigned int m_uiMessageType;
 @property (nonatomic, assign) unsigned int m_uiStatus;
 @property (nonatomic, assign) unsigned int m_uiCreateTime;
+@property (nonatomic, assign) unsigned int m_uiMesLocalID;
 @property (nonatomic, assign) long long m_n64MesSvrID;
 @property (nonatomic, strong) WCPayInfoItem *m_oWCPayInfoItem;
 - (id)initWithMsgType:(long long)arg1;
@@ -78,6 +80,7 @@
 
 @interface CMessageMgr : NSObject
 // 消息添加
+- (void)AddMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)AddLocalMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)AddEmoticonMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)onRevokeMsg:(CMessageWrap *)msgWrap;
@@ -95,6 +98,7 @@
 - (NSDictionary *)jj_parseNativeUrl:(NSString *)content;
 - (NSString *)jj_parseRedBagTitle:(NSString *)content;
 - (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isGroupSender:(BOOL)isGroupSender;
+- (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
 @end
 
 @interface WCRedEnvelopesReceiveHomeView : UIView
@@ -111,6 +115,7 @@
 @end
 
 @interface MMNewSessionMgr : NSObject
+- (unsigned int)GenSendMsgTime;
 @end
 
 @interface MMMsgLogicManager : NSObject

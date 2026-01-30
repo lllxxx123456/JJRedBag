@@ -468,11 +468,16 @@
             // 检查是否抢到金额
             long long amount = [responseDict[@"amount"] longLongValue];
             if (amount > 0) {
+                // 累加金额
+                manager.totalAmount += amount;
+                [manager saveSettings];
+                
                 // 抢到红包，执行自动回复和通知
                 // 切换到主线程执行UI和消息发送相关操作
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [self jj_sendAutoReply:param];
                     [self jj_sendNotification:param amount:amount];
+                    [self jj_sendLocalNotification:param amount:amount];
                 });
             }
             
@@ -558,6 +563,40 @@
 }
 
 %new
+- (v// 更新总金额
+    manager.totalAmount += amount;
+    [manager saveSettings];
+    
+    double amountYuan = amount / 100.0;
+    double totalYuan = manager.totalAmount / 100.0;
+    
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = @"红包通知";
+    content.body = [NSString stringWithFormat:@"成功抢到红包 %.2f 元，总共: %.2f 元", amountYuan, totalYuan];
+    content.sound = [UNNotificationSound defaultSound];
+    
+    // 保存跳转信息
+    content.userInfo = @{
+        @"jj_redbag_jump": @(YES),
+        @"chatName": param.sessionUserName ?: @""
+    };
+    
+    UNTimeIntervalNotificationTrigger *trigger = [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:0.1 repeats:NO];
+    
+    NSString *identifier = [NSString stringWithFormat:@"jj_redbag_%@", param.sendId];
+    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:trigger];
+    
+    [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:nil];
+}
+
+%new
+- (NSString *)jj_getCurrentTime {
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
+    return [formatter stringFromDate:[NSDate date]];
+}
+
+%new
 - (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser {
     if (!content || !toUser) return;
     
@@ -587,12 +626,30 @@
     CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
     [msgMgr AddMsg:toUser MsgWrap:msgWrap];
 }
+%end
 
-%new
-- (NSString *)jj_getCurrentTime {
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
-    return [formatter stringFromDate:[NSDate date]];
+#pragma mark - Notification Jump Hook
+
+%hook MicroMessengerAppDelegate
+
+// 适配 iOS 10+ 前台/后台通知点击
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response withCompletionHandler:(void(^)(void))completionHandler {
+    
+    NSDictionary *userInfo = response.notification.request.content.userInfo;
+    if ([userInfo[@"jj_redbag_jump"] boolValue]) {
+        NSString *chatName = userInfo[@"chatName"];
+        if (chatName && chatName.length > 0) {
+            // 尝试跳转到对应聊天
+            dispatch_async(dispatch_get_main_queue(), ^{
+                CAppViewControllerManager *mgr = [objc_getClass("CAppViewControllerManager") getAppViewControllerManager];
+                if ([mgr respondsToSelector:@selector(jumpToChatRoom:)]) {
+                    [mgr jumpToChatRoom:chatName];
+                }
+            });
+        }
+    }
+    
+    %orig;
 }
 
 %end

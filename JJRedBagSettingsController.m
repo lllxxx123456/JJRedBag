@@ -5,6 +5,7 @@
 
 @interface JJRedBagSettingsController ()
 @property (nonatomic, strong) UISwitch *mainSwitch;
+@property (nonatomic, strong) UILabel *amountLabel;
 @end
 
 @implementation JJRedBagSettingsController
@@ -36,6 +37,7 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [self updateAmountLabel];
     [self.tableView reloadData];
 }
 
@@ -47,7 +49,7 @@
 }
 
 - (void)setupHeaderView {
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 120)];
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 160)];
     
     UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 50, 50)];
     if (@available(iOS 13.0, *)) {
@@ -69,7 +71,44 @@
     titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [headerView addSubview:titleLabel];
     
+    self.amountLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 110, headerView.bounds.size.width, 30)];
+    self.amountLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
+    self.amountLabel.textColor = [UIColor systemRedColor];
+    self.amountLabel.textAlignment = NSTextAlignmentCenter;
+    self.amountLabel.userInteractionEnabled = YES;
+    self.amountLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleAmountTap)];
+    [self.amountLabel addGestureRecognizer:tap];
+    
+    [headerView addSubview:self.amountLabel];
+    
     self.tableView.tableHeaderView = headerView;
+    [self updateAmountLabel];
+}
+
+- (void)updateAmountLabel {
+    double amount = [JJRedBagManager sharedManager].totalAmount / 100.0;
+    self.amountLabel.text = [NSString stringWithFormat:@"为您抢了：%.2f 元", amount];
+}
+
+- (void)handleAmountTap {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"累计金额" message:nil preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"谢谢作者" style:UIAlertActionStyleDefault handler:nil]];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"直接置零" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        JJRedBagManager *manager = [JJRedBagManager sharedManager];
+        manager.totalAmount = 0;
+        [manager saveSettings];
+        [self updateAmountLabel];
+    }]];
+    
+    if (alert.popoverPresentationController) {
+        alert.popoverPresentationController.sourceView = self.amountLabel;
+        alert.popoverPresentationController.sourceRect = self.amountLabel.bounds;
+    }
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)dismissSelf {
@@ -121,7 +160,7 @@
     
     // Section 4: Notification
     if (section == 4) {
-        NSInteger count = 3;
+        NSInteger count = 2; // Switch, Local Switch
         if (manager.notificationEnabled) count++; // Target
         return count;
     }
@@ -384,15 +423,6 @@
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         return;
     }
-    currentIndex++;
-    
-    if (row == currentIndex) {
-        cell.textLabel.text = @"累计抢金额";
-        cell.detailTextLabel.text = [NSString stringWithFormat:@"%.2f 元", manager.totalAmount / 100.0];
-        cell.accessoryType = UITableViewCellAccessoryNone;
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        return;
-    }
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -445,10 +475,6 @@
     } else if (indexPath.section == 4) {
         if (manager.notificationEnabled && indexPath.row == 1) {
             [self showNotificationContactSelect];
-        }
-        NSInteger amountRow = manager.notificationEnabled ? 3 : 2;
-        if (indexPath.row == amountRow) {
-            [self showResetTotalAmountAlert];
         }
     }
 }
@@ -517,18 +543,6 @@
 - (void)showShakeHintAlert {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:@"开启后，在微信界面摇一摇手机即可快速打开此设置页面。" preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)showResetTotalAmountAlert {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"累计金额" message:@"是否重置统计？" preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-        JJRedBagManager *manager = [JJRedBagManager sharedManager];
-        manager.totalAmount = 0;
-        [manager saveSettings];
-        [self.tableView reloadData];
-    }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 

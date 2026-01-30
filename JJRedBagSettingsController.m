@@ -134,7 +134,15 @@
     } else if (section == 2) {
         if (!manager.enabled) return 0; // 关闭时隐藏设置
         // 其他/过滤设置
-        return 4; // 关键词过滤, 编辑关键词, 抢自己, 抢私聊
+        // 0: 关键词过滤
+        // 1: 编辑关键词 (仅开启过滤时显示)
+        // 2: 抢自己
+        // 3: 抢私聊
+        // 4: 后台自动抢
+        // 5: 摇一摇呼出
+        NSUInteger count = 5;
+        if (manager.filterKeywordEnabled) count++;
+        return count;
     }
     return 0;
 }
@@ -223,8 +231,17 @@
         }
         
     } else if (indexPath.section == 2) {
-        // 高级设置
-        if (indexPath.row == 0) {
+        // 其他设置
+        // 映射 indexPath.row 到实际功能
+        // 如果开启了关键词过滤: 0=switch, 1=edit, 2=self, 3=private, 4=bg, 5=shake
+        // 如果关闭了关键词过滤: 0=switch, 1=self, 2=private, 3=bg, 4=shake
+        
+        NSInteger row = indexPath.row;
+        if (!manager.filterKeywordEnabled && row > 0) {
+            row++; // 跳过编辑行
+        }
+        
+        if (row == 0) {
             cell.textLabel.text = @"关键词过滤";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.filterKeywordEnabled;
@@ -232,20 +249,10 @@
             cell.accessoryView = sw;
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        } else if (indexPath.row == 1) {
+        } else if (row == 1) {
             cell.textLabel.text = @"编辑关键词";
             cell.detailTextLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu 个", (unsigned long)manager.filterKeywords.count] : @"未设置";
-            if (!manager.filterKeywordEnabled) {
-                if (@available(iOS 13.0, *)) {
-                    cell.textLabel.textColor = [UIColor tertiaryLabelColor];
-                    cell.detailTextLabel.textColor = [UIColor tertiaryLabelColor];
-                } else {
-                    cell.textLabel.textColor = [UIColor lightGrayColor];
-                    cell.detailTextLabel.textColor = [UIColor lightGrayColor];
-                }
-                cell.userInteractionEnabled = NO;
-            }
-        } else if (indexPath.row == 2) {
+        } else if (row == 2) {
             cell.textLabel.text = @"抢自己的红包";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.grabSelfEnabled;
@@ -254,11 +261,29 @@
             cell.accessoryView = sw;
             cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        } else if (indexPath.row == 3) {
+        } else if (row == 3) {
             cell.textLabel.text = @"抢私聊红包";
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = manager.grabPrivateEnabled;
             sw.tag = 201;
+            [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (row == 4) {
+            cell.textLabel.text = @"后台和锁屏自动抢";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.backgroundGrabEnabled;
+            sw.tag = 202;
+            [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (row == 5) {
+            cell.textLabel.text = @"摇一摇呼出配置";
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = manager.shakeToConfigEnabled;
+            sw.tag = 203;
             [sw addTarget:self action:@selector(otherSwitchChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = sw;
             cell.accessoryType = UITableViewCellAccessoryNone;
@@ -280,7 +305,10 @@
         else if (indexPath.row == 2) [self showDelayOtherModeSelector];
         else if (indexPath.row == 3) [self showDelayTimeInput];
     } else if (indexPath.section == 2) {
-        if (indexPath.row == 1) [self showKeywordEditor];
+        NSInteger row = indexPath.row;
+        if (!manager.filterKeywordEnabled && row > 0) row++;
+        
+        if (row == 1) [self showKeywordEditor];
     }
 }
 
@@ -320,14 +348,22 @@
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     manager.filterKeywordEnabled = sender.on;
     [manager saveSettings];
-    // 刷新"编辑关键词"行的状态
-    [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:1 inSection:2]] withRowAnimation:UITableViewRowAnimationNone];
+    
+    // 动态插入或删除"编辑关键词"行
+    NSIndexPath *editRowIndexPath = [NSIndexPath indexPathForRow:1 inSection:2];
+    if (sender.on) {
+        [self.tableView insertRowsAtIndexPaths:@[editRowIndexPath] withRowAnimation:UITableViewRowAnimationFade];
+    } else {
+        [self.tableView deleteRowsAtIndexPaths:@[editRowIndexPath] withRowAnimation:UITableViewRowAnimationFade];
+    }
 }
 
 - (void)otherSwitchChanged:(UISwitch *)sender {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (sender.tag == 200) manager.grabSelfEnabled = sender.on;
     if (sender.tag == 201) manager.grabPrivateEnabled = sender.on;
+    if (sender.tag == 202) manager.backgroundGrabEnabled = sender.on;
+    if (sender.tag == 203) manager.shakeToConfigEnabled = sender.on;
     [manager saveSettings];
 }
 

@@ -1,7 +1,8 @@
 #import "JJRedBagManager.h"
 #import "JJRedBagSettingsController.h"
 
-#define kSettingsPath @"/var/mobile/Library/Preferences/com.jj.redbag.plist"
+// 使用沙盒内的 Documents 目录存储配置，避免 /var/mobile/Library/Preferences 无权限或被重置的问题
+#define kSettingsPath ([NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"jjredbag_settings.plist"])
 
 @implementation JJRedBagManager
 
@@ -125,18 +126,19 @@
 
 - (void)showDisclaimerAlertWithCompletion:(void(^)(BOOL accepted))completion {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"温馨提示"
-                                                                       message:@"仅供娱乐使用\n\n封号与否和本插件无关\n\n请认真考虑是否开启功能"
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"免责声明"
+                                                                       message:@"本插件仅供学习和娱乐使用。\n\n使用本插件可能导致微信账号被封禁等风险，风险需由您自行承担。\n\n作者不对任何后果负责。"
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         
-        UIAlertAction *confirmAction = [UIAlertAction actionWithTitle:@"我已了解，开启功能" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        UIAlertAction *confirmAction = [UIAlertAction actionWithTitle:@"我已知晓并承担风险 (3)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
             self.hasShownDisclaimer = YES;
             self.enabled = YES;
             [self saveSettings];
             if (completion) completion(YES);
         }];
+        confirmAction.enabled = NO;
         
-        UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"那我不用了" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
             if (completion) completion(NO);
         }];
         
@@ -145,6 +147,19 @@
         
         UIViewController *topVC = [self topViewController];
         [topVC presentViewController:alert animated:YES completion:nil];
+        
+        // 倒计时逻辑
+        __block int countdown = 3;
+        NSTimer *timer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
+            countdown--;
+            if (countdown > 0) {
+                [confirmAction setValue:[NSString stringWithFormat:@"我已知晓并承担风险 (%d)", countdown] forKey:@"title"];
+            } else {
+                [confirmAction setValue:@"我已知晓并承担风险" forKey:@"title"];
+                confirmAction.enabled = YES;
+                [timer invalidate];
+            }
+        }];
     });
 }
 

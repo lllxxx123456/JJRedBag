@@ -11,8 +11,14 @@
 @property (strong, nonatomic) NSString *nativeUrl;
 @property (strong, nonatomic) NSString *sessionUserName;
 @property (strong, nonatomic) NSString *sign;
-@property (strong, nonatomic) NSString *timingIdentifier;
+@property (nonatomic, copy) NSString *timingIdentifier;
 @property (assign, nonatomic) BOOL isGroupSender;
+
+// 新增属性用于自动回复和通知
+@property (nonatomic, copy) NSString *fromUser;       // 发送者(可能是群ID)
+@property (nonatomic, copy) NSString *realChatUser;   // 群聊实际发送者ID
+@property (nonatomic, assign) BOOL isGroup;           // 是否为群聊
+@property (nonatomic, copy) NSString *content;        // 红包标题/内容
 
 - (NSDictionary *)toParams;
 

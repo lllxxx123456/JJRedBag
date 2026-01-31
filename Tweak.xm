@@ -77,7 +77,6 @@
     if (!manager.enabled) return;
     
     NSString *fromUser = msgWrap.m_nsFromUsr;
-    NSString *toUser = msgWrap.m_nsToUsr;
     NSString *content = msgWrap.m_nsContent;
     
     // 获取自己的联系人信息

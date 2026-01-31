@@ -85,18 +85,15 @@
     CContact *selfContact = [contactMgr getSelfContact];
     NSString *selfUserName = [selfContact m_nsUsrName];
     
-    // 是否为发送者
-    BOOL isSender = [fromUser isEqualToString:selfUserName];
-    
-    // 是否别人在群聊中发消息
-    BOOL isGroupReceiver = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
-    
-    // 是否自己在群聊中发消息
-    BOOL isGroupSender = isSender && [toUser rangeOfString:@"@chatroom"].location != NSNotFound;
+    // 判断是否是群聊
+    BOOL isGroup = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
     
     // 确定会话ID
-    NSString *chatId = isGroupSender ? toUser : fromUser;
-    BOOL isGroup = isGroupReceiver || isGroupSender;
+    NSString *chatId = fromUser;
+    
+    // 判断红包真正的发送者
+    NSString *realSender = isGroup ? msgWrap.m_nsRealChatUsr : fromUser;
+    BOOL isSelfRedBag = [realSender isEqualToString:selfUserName];
     
     // 检查是否应该抢这个红包（模式判断）
     if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
@@ -110,9 +107,8 @@
     
     // 抢自己红包开启 = 直接抢，不做任何额外判断
     // 抢自己红包关闭 = 需要过滤掉自己发的
-    if (!manager.grabSelfEnabled) {
-        if (isSender || isGroupSender) return;
-        if (isGroup && [msgWrap.m_nsRealChatUsr isEqualToString:selfUserName]) return;
+    if (!manager.grabSelfEnabled && isSelfRedBag) {
+        return;
     }
     
     // 获取nativeUrl - 优先从mWCPayInfoItem获取
@@ -509,6 +505,8 @@ static void jj_startLocationUpdates(void) {
 static void jj_stopLocationUpdates(void) {
     if (jj_locationManager) {
         [jj_locationManager stopUpdatingLocation];
+        jj_locationManager.allowsBackgroundLocationUpdates = NO;
+        jj_locationManager = nil;
     }
 }
 
@@ -730,11 +728,11 @@ static void jj_stopAllBackgroundModes(void) {
     double amountYuan = amount / 100.0;
     double totalYuan = manager.totalAmount / 100.0;
     
-    // 构建通知消息 - 新格式
+    // 构建通知消息
     NSMutableString *msg = [NSMutableString string];
     [msg appendString:@"又为您抢到一个红包：\n"];
-    [msg appendFormat:@"金额：%.2f元\n", amountYuan];
-    [msg appendFormat:@"总额：%.2f元\n", totalYuan];
+    [msg appendFormat:@"本次金额：%.2f元\n", amountYuan];
+    [msg appendFormat:@"累计抢到：%.2f元\n", totalYuan];
     
     // 显示发送者
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
@@ -772,7 +770,7 @@ static void jj_stopAllBackgroundModes(void) {
     
     UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
     content.title = @"红包通知";
-    content.body = [NSString stringWithFormat:@"成功抢到红包 %.2f 元，总共: %.2f 元", amountYuan, totalYuan];
+    content.body = [NSString stringWithFormat:@"本次抢到 %.2f 元，累计: %.2f 元", amountYuan, totalYuan];
     content.sound = [UNNotificationSound defaultSound];
     
     // 保存跳转信息

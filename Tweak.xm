@@ -139,7 +139,7 @@
     NSMutableDictionary *context = [NSMutableDictionary dictionary];
     context[@"nativeUrl"] = nativeUrl;
     context[@"msgWrap"] = msgWrap;
-    context[@"isGroupSender"] = @(isGroupSender);
+    context[@"isSelfRedBag"] = @(isSelfRedBag);
     context[@"isGroup"] = @(isGroup);
     context[@"fromUser"] = fromUser;
     context[@"realChatUser"] = msgWrap.m_nsRealChatUsr ?: @"";
@@ -155,7 +155,7 @@
 - (void)jj_openRedBagWithContext:(NSDictionary *)context {
     NSString *nativeUrl = context[@"nativeUrl"];
     CMessageWrap *msgWrap = context[@"msgWrap"];
-    BOOL isGroupSender = [context[@"isGroupSender"] boolValue];
+    BOOL isSelfRedBag = [context[@"isSelfRedBag"] boolValue];
     
     if (!nativeUrl || nativeUrl.length == 0) return;
     
@@ -196,9 +196,9 @@
         param.nickName = [selfContact getContactDisplayName] ?: @"";
         param.headImg = [selfContact m_nsHeadImgUrl] ?: @"";
         param.nativeUrl = nativeUrl;
-        param.sessionUserName = isGroupSender ? msgWrap.m_nsToUsr : msgWrap.m_nsFromUsr;
+        param.sessionUserName = msgWrap.m_nsFromUsr;
         param.sign = nativeUrlDict[@"sign"] ?: @"";
-        param.isGroupSender = isGroupSender;
+        param.isSelfRedBag = isSelfRedBag;
         
         // 填充上下文信息用于自动回复和通知
         param.isGroup = [context[@"isGroup"] boolValue];
@@ -281,7 +281,7 @@
 }
 
 %new
-- (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isGroupSender:(BOOL)isGroupSender {
+- (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isSelfRedBag:(BOOL)isSelfRedBag {
     if (!nativeUrl || nativeUrl.length == 0) return;
     
     @try {
@@ -321,9 +321,9 @@
         param.nickName = [selfContact getContactDisplayName] ?: @"";
         param.headImg = [selfContact m_nsHeadImgUrl] ?: @"";
         param.nativeUrl = nativeUrl;
-        param.sessionUserName = isGroupSender ? msgWrap.m_nsToUsr : msgWrap.m_nsFromUsr;
+        param.sessionUserName = msgWrap.m_nsFromUsr;
         param.sign = nativeUrlDict[@"sign"] ?: @"";
-        param.isGroupSender = isGroupSender;
+        param.isSelfRedBag = isSelfRedBag;
         
         [[JJRedBagParamQueue sharedQueue] enqueue:param];
         

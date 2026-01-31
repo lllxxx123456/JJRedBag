@@ -446,11 +446,21 @@
             
             // 计算延迟时间
             NSTimeInterval delay = [manager getDelayTimeForChat:param.sessionUserName];
-            unsigned int delayMs = (unsigned int)(delay * 1000);
             
-            // 创建抢红包操作
-            JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
-            [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
+            if (delay > 0) {
+                // 有延迟，走任务队列
+                unsigned int delayMs = (unsigned int)(delay * 1000);
+                // 创建抢红包操作
+                JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
+                [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
+            } else {
+                // 极速模式：直接开，不走队列
+                WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
+                                                      getService:objc_getClass("WCRedEnvelopesLogicMgr")];
+                if (logicMgr) {
+                    [logicMgr OpenRedEnvelopesRequest:[param toParams]];
+                }
+            }
             
         } else {
             // 处理拆开红包的响应 (cgiCmdid 通常为 4, 5, 168 等)
@@ -666,6 +676,16 @@
         if (!manager.shakeToConfigEnabled) return;
         
         dispatch_async(dispatch_get_main_queue(), ^{
+            UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+            while (topVC.presentedViewController) {
+                topVC = topVC.presentedViewController;
+            }
+            
+            // 如果已经是弹窗，不再重复弹出
+            if ([topVC isKindOfClass:[UIAlertController class]]) {
+                return;
+            }
+            
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"JJ抢红包"
                                                                            message:manager.enabled ? @"当前状态：开启" : @"当前状态：关闭"
                                                                     preferredStyle:UIAlertControllerStyleAlert];

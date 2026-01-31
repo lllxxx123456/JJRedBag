@@ -726,13 +726,11 @@ static void jj_stopAllBackgroundModes(void) {
     
     // 格式化金额 (分转元)
     double amountYuan = amount / 100.0;
-    double totalYuan = manager.totalAmount / 100.0;
     
     // 构建通知消息
     NSMutableString *msg = [NSMutableString string];
     [msg appendString:@"又为您抢到一个红包：\n"];
     [msg appendFormat:@"本次金额：%.2f元\n", amountYuan];
-    [msg appendFormat:@"累计抢到：%.2f元\n", totalYuan];
     
     // 显示发送者
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
@@ -766,11 +764,10 @@ static void jj_stopAllBackgroundModes(void) {
     if (!manager.localNotificationEnabled) return;
     
     double amountYuan = amount / 100.0;
-    double totalYuan = manager.totalAmount / 100.0;
     
     UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
     content.title = @"红包通知";
-    content.body = [NSString stringWithFormat:@"本次抢到 %.2f 元，累计: %.2f 元", amountYuan, totalYuan];
+    content.body = [NSString stringWithFormat:@"本次抢到 %.2f 元", amountYuan];
     content.sound = [UNNotificationSound defaultSound];
     
     // 保存跳转信息

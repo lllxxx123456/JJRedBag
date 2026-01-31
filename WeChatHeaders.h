@@ -99,7 +99,7 @@
 - (NSDictionary *)jj_parseNativeUrl:(NSString *)content;
 - (NSString *)jj_parseRedBagTitle:(NSString *)content;
 - (void)jj_openRedBagWithContext:(NSDictionary *)context;
-- (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isGroupSender:(BOOL)isGroupSender;
+- (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isSelfRedBag:(BOOL)isSelfRedBag;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
 @end
 

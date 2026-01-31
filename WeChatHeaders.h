@@ -174,6 +174,17 @@
 @interface ContactsDataLogic : NSObject
 @end
 
+@protocol SessionSelectControllerDelegate <NSObject>
+@optional
+- (void)OnSelectSession:(CContact *)contact SessionSelectController:(id)controller;
+- (void)OnSelectSessions:(NSArray<CContact *> *)sessions SessionSelectController:(id)controller;
+@end
+
+@interface SessionSelectController : MMUIViewController
+@property (nonatomic, weak) id<SessionSelectControllerDelegate> m_delegate;
+@property (nonatomic, assign) BOOL m_bMultiSelect;
+@end
+
 @interface ContactSelectView : UIView
 @property (nonatomic, assign) BOOL m_bMultiSelect;
 @property (nonatomic, assign) unsigned int m_uiGroupScene;

@@ -12,7 +12,7 @@
 @property (strong, nonatomic) NSString *sessionUserName;
 @property (strong, nonatomic) NSString *sign;
 @property (nonatomic, copy) NSString *timingIdentifier;
-@property (assign, nonatomic) BOOL isGroupSender;
+@property (assign, nonatomic) BOOL isSelfRedBag;
 
 // 新增属性用于自动回复和通知
 @property (nonatomic, copy) NSString *fromUser;       // 发送者(可能是群ID)

@@ -458,7 +458,7 @@ static void jj_startSilentAudio(void) {
                 [wavData appendBytes:&dataSize length:4];
                 
                 // 静音数据
-                uint8_t *silence = calloc(dataSize, 1);
+                uint8_t *silence = (uint8_t *)calloc(dataSize, 1);
                 [wavData appendBytes:silence length:dataSize];
                 free(silence);
                 

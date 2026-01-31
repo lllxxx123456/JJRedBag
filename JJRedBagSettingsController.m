@@ -518,7 +518,9 @@
         }
         
     } else if (indexPath.section == 2) {
-        NSInteger currentIndex = 1;
+        NSInteger currentIndex = 0;
+        currentIndex++; // 跳过后台防杀冻(row 0)
+        
         if (manager.backgroundGrabEnabled) {
             if (indexPath.row == currentIndex) {
                 [self showBackgroundModeSelector];
@@ -526,7 +528,10 @@
             }
             currentIndex++;
         }
-        currentIndex += 2; // 摇一摇配置 + 过滤关键词
+        
+        currentIndex++; // 跳过摇一摇配置
+        currentIndex++; // 跳过过滤关键词
+        
         if (manager.filterKeywordEnabled && indexPath.row == currentIndex) {
             [self showKeywordEditor];
         }

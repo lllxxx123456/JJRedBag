@@ -3,22 +3,36 @@
 #import "WeChatHeaders.h"
 
 @interface JJRedBagContactSelectController () <SessionSelectControllerDelegate>
+@property (nonatomic, assign) BOOL hasPresented;
+@property (nonatomic, assign) BOOL didSelect;
 @end
 
 @implementation JJRedBagContactSelectController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.hasPresented = NO;
+    self.didSelect = NO;
+    
     if (@available(iOS 13.0, *)) {
         self.view.backgroundColor = [UIColor systemBackgroundColor];
     } else {
         self.view.backgroundColor = [UIColor whiteColor];
     }
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
     
-    // 延迟执行以确保视图加载完成
-    dispatch_async(dispatch_get_main_queue(), ^{
+    if (!self.hasPresented) {
+        self.hasPresented = YES;
         [self showSessionSelect];
-    });
+    } else {
+        // 如果已经present过，且没有选择（即取消了），则返回上一级
+        if (!self.didSelect) {
+            [self.navigationController popViewControllerAnimated:YES];
+        }
+    }
 }
 
 - (void)showSessionSelect {
@@ -36,6 +50,8 @@
 
 - (void)OnSelectSession:(CContact *)contact SessionSelectController:(id)controller {
     if (!contact) return;
+    
+    self.didSelect = YES;
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     manager.notificationChatId = contact.m_nsUsrName;

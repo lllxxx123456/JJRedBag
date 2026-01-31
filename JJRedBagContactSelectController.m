@@ -1,21 +1,11 @@
 #import "JJRedBagContactSelectController.h"
 #import "JJRedBagManager.h"
 #import "WeChatHeaders.h"
-#import <objc/runtime.h>
 
-@interface JJRedBagContactSelectController () <ContactSelectViewDelegate>
-@property (nonatomic, strong) ContactSelectView *selectView;
-@property (nonatomic, strong) MMUIViewController *helper;
+@interface JJRedBagContactSelectController () <SessionSelectControllerDelegate>
 @end
 
 @implementation JJRedBagContactSelectController
-
-- (instancetype)init {
-    if (self = [super initWithNibName:nil bundle:nil]) {
-        _helper = [[objc_getClass("MMUIViewController") alloc] init];
-    }
-    return self;
-}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -25,52 +15,38 @@
         self.view.backgroundColor = [UIColor whiteColor];
     }
     
-    self.title = @"选择通知对象";
-    [self initSelectView];
+    // 延迟执行以确保视图加载完成
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self showSessionSelect];
+    });
 }
 
-- (void)initSelectView {
-    self.selectView = [[objc_getClass("ContactSelectView") alloc] initWithFrame:self.view.bounds delegate:self];
+- (void)showSessionSelect {
+    SessionSelectController *selectVC = [[objc_getClass("SessionSelectController") alloc] init];
+    selectVC.m_delegate = self;
+    selectVC.m_bMultiSelect = NO;
     
-    // 0: All, 1: Private, 2: Group? 
-    // Usually 0 or something that allows both.
-    // m_uiGroupScene seems to control filters.
-    // Try to allow searching friends and groups.
-    self.selectView.m_uiGroupScene = 0; 
-    self.selectView.m_bMultiSelect = NO; // Single select
-    [self.selectView initData:0];
-    
-    self.selectView.m_bShowHistoryGroup = YES;
-    self.selectView.m_bShowRadarCreateRoom = NO;
-    self.selectView.m_bShowContactTag = NO;
-    self.selectView.m_bShowSelectFromGroup = NO;
-    
-    [self.selectView initView];
-    [self.view addSubview:self.selectView];
+    // 使用UINavigationController包装，以便有导航栏
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:selectVC];
+    nav.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:nav animated:YES completion:nil];
 }
 
-#pragma mark - ContactSelectViewDelegate
+#pragma mark - SessionSelectControllerDelegate
 
-- (void)onSelectContact:(CContact *)contact {
+- (void)OnSelectSession:(CContact *)contact SessionSelectController:(id)controller {
+    if (!contact) return;
+    
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     manager.notificationChatId = contact.m_nsUsrName;
     manager.notificationChatName = [contact getContactDisplayName];
     [manager saveSettings];
     
-    [self.navigationController popViewControllerAnimated:YES];
-}
-
-#pragma mark - Forwarding
-
-- (UIViewController *)getViewController {
-    return self;
-}
-
-- (id)forwardingTargetForSelector:(SEL)aSelector {
-    if ([self.helper respondsToSelector:aSelector]) {
-        return self.helper;
-    }
-    return [super forwardingTargetForSelector:aSelector];
+    // 关闭选择器
+    [controller dismissViewControllerAnimated:YES completion:^{
+        // 关闭当前页面返回设置页
+        [self.navigationController popViewControllerAnimated:YES];
+    }];
 }
 
 @end

@@ -127,8 +127,6 @@
     // Section 0: Global
     if (section == 0) return 1;
     
-    if (!manager.enabled) return 0;
-    
     // Section 1: Mode & Targets
     if (section == 1) {
         NSInteger count = 3; // Mode, Self, Private
@@ -168,12 +166,35 @@
     return 0;
 }
 
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    NSString *title = nil;
+    if (section == 1) title = @"红包设置";
+    if (section == 2) title = @"高级功能";
+    if (section == 3) title = @"自动回复";
+    if (section == 4) title = @"通知统计";
+    
+    if (!title) return nil;
+    
+    UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 5, tableView.bounds.size.width - 32, 30)];
+    label.text = title;
+    label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+    if (@available(iOS 13.0, *)) {
+        label.textColor = [UIColor labelColor];
+    } else {
+        label.textColor = [UIColor blackColor];
+    }
+    [view addSubview:label];
+    return view;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    if (section == 0) return 10;
+    return 40;
+}
+
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 1) return @"红包设置";
-    if (section == 2) return @"高级功能";
-    if (section == 3) return @"自动回复";
-    if (section == 4) return @"通知统计";
-    return nil;
+    return nil; // Using viewForHeaderInSection
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -522,7 +543,18 @@
 
 - (void)autoReplySwitchChanged:(UISwitch *)sender {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (sender.tag == 300) manager.autoReplyEnabled = sender.on;
+    if (sender.tag == 300) {
+        manager.autoReplyEnabled = sender.on;
+        if (sender.on) {
+            if (!manager.autoReplyContent || manager.autoReplyContent.length == 0) {
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:@"需自定义自动回复内容，否则不起作用" preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                    [self showAutoReplyContentInput];
+                }]];
+                [self presentViewController:alert animated:YES completion:nil];
+            }
+        }
+    }
     if (sender.tag == 301) manager.autoReplyPrivateEnabled = sender.on;
     if (sender.tag == 302) manager.autoReplyGroupEnabled = sender.on;
     if (sender.tag == 303) manager.autoReplyDelayEnabled = sender.on;
@@ -532,7 +564,19 @@
 
 - (void)notificationSwitchChanged:(UISwitch *)sender {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (sender.tag == 400) manager.notificationEnabled = sender.on;
+    if (sender.tag == 400) {
+        manager.notificationEnabled = sender.on;
+        if (sender.on) {
+            if (!manager.notificationChatId || manager.notificationChatId.length == 0) {
+                manager.notificationChatId = @"filehelper";
+                manager.notificationChatName = @"文件传输助手";
+                
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:@"默认发送至《文件传输助手》" preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+                [self presentViewController:alert animated:YES completion:nil];
+            }
+        }
+    }
     if (sender.tag == 401) manager.localNotificationEnabled = sender.on;
     [manager saveSettings];
     [self.tableView reloadData];
@@ -655,10 +699,11 @@
 
 - (void)showKeywordEditor {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"编辑词库" message:@"用逗号分隔" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"添加过滤关键词" message:@"用逗号分隔" preferredStyle:UIAlertControllerStyleAlert];
     
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.text = [manager.filterKeywords componentsJoinedByString:@","];
+        textField.placeholder = @"测挂,专属";
     }];
     
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];

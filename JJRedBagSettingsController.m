@@ -32,7 +32,7 @@
     
     [self setupNavigationBar];
     [self setupHeaderView];
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"JJCell"];
+    // [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"JJCell"]; // Removed to support Value1 style
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -709,6 +709,8 @@
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *text = alert.textFields.firstObject.text;
+        // 支持中文逗号，替换为英文逗号
+        text = [text stringByReplacingOccurrencesOfString:@"，" withString:@","];
         NSArray *raw = [text componentsSeparatedByString:@","];
         NSMutableArray *clean = [NSMutableArray array];
         for (NSString *s in raw) {

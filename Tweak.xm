@@ -97,19 +97,8 @@
     NSString *chatId = isGroupSender ? toUser : fromUser;
     BOOL isGroup = isGroupReceiver || isGroupSender;
     
-    // 解析红包发送者
-    NSString *realSender = nil;
-    if (isGroup) {
-        // 群聊中，从消息内容解析发送者
-        realSender = msgWrap.m_nsRealChatUsr;
-    } else {
-        // 私聊中，发送者就是fromUser
-        realSender = fromUser;
-    }
-    
-    // 自己发的红包判断
-    BOOL isSelfRedBag = [realSender isEqualToString:selfUserName] || isSender || isGroupSender;
-    if (isSelfRedBag && !manager.grabSelfEnabled) {
+    // 检查是否应该抢这个红包（模式判断）
+    if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
         return;
     }
     
@@ -118,9 +107,11 @@
         return;
     }
     
-    // 检查是否应该抢这个红包
-    if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
-        return;
+    // 抢自己红包开启 = 直接抢，不做任何额外判断
+    // 抢自己红包关闭 = 需要过滤掉自己发的
+    if (!manager.grabSelfEnabled) {
+        if (isSender || isGroupSender) return;
+        if (isGroup && [msgWrap.m_nsRealChatUsr isEqualToString:selfUserName]) return;
     }
     
     // 获取nativeUrl - 优先从mWCPayInfoItem获取

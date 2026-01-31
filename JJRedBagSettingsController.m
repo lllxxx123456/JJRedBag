@@ -255,7 +255,8 @@
     NSInteger row = indexPath.row;
     
     if (row == 0) {
-        cell.textLabel.text = @"抢红包模式";
+        cell.textLabel.text = @"⤷ 抢红包模式";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         if (manager.grabMode == JJGrabModeExclude) cell.detailTextLabel.text = @"黑名单模式";
         else if (manager.grabMode == JJGrabModeOnly) cell.detailTextLabel.text = @"白名单模式";
         else if (manager.grabMode == JJGrabModeDelay) cell.detailTextLabel.text = @"延迟抢模式";
@@ -270,7 +271,8 @@
     
     if (hasGroupSelect) {
         if (row == currentIndex) {
-            cell.textLabel.text = @"选群聊列表";
+            cell.textLabel.text = @"⤷ 选群聊列表";
+            cell.textLabel.font = [UIFont systemFontOfSize:15];
             NSUInteger count = [self getSelectedGroupCount];
             cell.detailTextLabel.text = [NSString stringWithFormat:@"已选 %lu 个", (unsigned long)count];
             return;
@@ -280,14 +282,16 @@
     
     if (isDelayMode) {
         if (row == currentIndex) {
-            cell.textLabel.text = @"其他群模式";
+            cell.textLabel.text = @"⤷ 其他群模式";
+            cell.textLabel.font = [UIFont systemFontOfSize:15];
             cell.detailTextLabel.text = manager.delayOtherMode == JJDelayOtherModeNoDelay ? @"无延迟抢" : @"直接不抢";
             return;
         }
         currentIndex++;
         
         if (row == currentIndex) {
-            cell.textLabel.text = @"延迟抢秒数";
+            cell.textLabel.text = @"⤷ 延迟抢秒数";
+            cell.textLabel.font = [UIFont systemFontOfSize:15];
             cell.detailTextLabel.text = [NSString stringWithFormat:@"%.1f 秒", manager.delayTime];
             return;
         }
@@ -295,7 +299,8 @@
     }
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"抢自己红包";
+        cell.textLabel.text = @"⤷ 抢自己红包";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.grabSelfEnabled;
         sw.tag = 200;
@@ -308,7 +313,8 @@
     currentIndex++;
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"抢私聊红包";
+        cell.textLabel.text = @"⤷ 抢私聊红包";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.grabPrivateEnabled;
         sw.tag = 201;
@@ -325,7 +331,8 @@
     NSInteger currentIndex = 0;
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"后台防杀冻";
+        cell.textLabel.text = @"⤷ 后台保活";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.backgroundGrabEnabled;
         sw.tag = 202;
@@ -339,7 +346,8 @@
     
     if (manager.backgroundGrabEnabled) {
         if (row == currentIndex) {
-            cell.textLabel.text = @"  保活模式";
+            cell.textLabel.text = @"    ⤷ 保活模式";
+            cell.textLabel.font = [UIFont systemFontOfSize:14];
             NSString *modeName = @"省电模式";
             if (manager.backgroundMode == JJBackgroundModeLocation) modeName = @"稳定模式";
             else if (manager.backgroundMode == JJBackgroundModeAudio) modeName = @"强力模式";
@@ -350,7 +358,8 @@
     }
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"摇一摇配置";
+        cell.textLabel.text = @"⤷ 摇一摇配置";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.shakeToConfigEnabled;
         sw.tag = 203;
@@ -363,7 +372,8 @@
     currentIndex++;
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"过滤关键词";
+        cell.textLabel.text = @"⤷ 过滤关键词";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.filterKeywordEnabled;
         [sw addTarget:self action:@selector(filterSwitchChanged:) forControlEvents:UIControlEventValueChanged];
@@ -375,7 +385,8 @@
     currentIndex++;
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"  关键词列表";
+        cell.textLabel.text = @"    ⤷ 关键词列表";
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
         if (manager.filterKeywords.count > 0) {
             cell.detailTextLabel.text = [manager.filterKeywords componentsJoinedByString:@", "];
         } else {
@@ -388,7 +399,8 @@
     NSInteger row = indexPath.row;
     
     if (row == 0) {
-        cell.textLabel.text = @"自动回复开";
+        cell.textLabel.text = @"⤷ 自动回复开";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.autoReplyEnabled;
         sw.tag = 300;
@@ -402,7 +414,8 @@
     NSInteger index = row;
     
     if (index == 1) {
-        cell.textLabel.text = @"私聊回复开";
+        cell.textLabel.text = @"    ⤷ 私聊回复";
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.autoReplyPrivateEnabled;
         sw.tag = 301;
@@ -411,7 +424,8 @@
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else if (index == 2) {
-        cell.textLabel.text = @"群聊回复开";
+        cell.textLabel.text = @"    ⤷ 群聊回复";
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.autoReplyGroupEnabled;
         sw.tag = 302;
@@ -420,7 +434,8 @@
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else if (index == 3) {
-        cell.textLabel.text = @"延迟回复开";
+        cell.textLabel.text = @"    ⤷ 延迟回复";
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.autoReplyDelayEnabled;
         sw.tag = 303;
@@ -434,10 +449,12 @@
         NSInteger delayIndex = 4;
         
         if (showDelayTime && index == delayIndex) {
-            cell.textLabel.text = @"回复延迟秒";
+            cell.textLabel.text = @"        ⤷ 延迟秒数";
+            cell.textLabel.font = [UIFont systemFontOfSize:13];
             cell.detailTextLabel.text = [NSString stringWithFormat:@"%.1f 秒", manager.autoReplyDelayTime];
         } else if (index == contentIndex) {
-            cell.textLabel.text = @"回复的内容";
+            cell.textLabel.text = @"    ⤷ 回复内容";
+            cell.textLabel.font = [UIFont systemFontOfSize:14];
             cell.detailTextLabel.text = (manager.autoReplyContent && manager.autoReplyContent.length > 0) ? manager.autoReplyContent : @"未设置";
         }
     }
@@ -448,7 +465,8 @@
     int currentIndex = 0;
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"消息通知开";
+        cell.textLabel.text = @"⤷ 消息通知开";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.notificationEnabled;
         sw.tag = 400;
@@ -462,7 +480,8 @@
     
     if (manager.notificationEnabled) {
         if (row == currentIndex) {
-            cell.textLabel.text = @"通知接收人";
+            cell.textLabel.text = @"    ⤷ 通知接收人";
+            cell.textLabel.font = [UIFont systemFontOfSize:14];
             cell.detailTextLabel.text = (manager.notificationChatName && manager.notificationChatName.length > 0) ? manager.notificationChatName : @"点击设置";
             return;
         }
@@ -470,7 +489,8 @@
     }
     
     if (row == currentIndex) {
-        cell.textLabel.text = @"弹窗通知开";
+        cell.textLabel.text = @"⤷ 弹窗通知开";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.localNotificationEnabled;
         sw.tag = 401;

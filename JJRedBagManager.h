@@ -13,6 +13,12 @@ typedef NS_ENUM(NSInteger, JJDelayOtherMode) {
     JJDelayOtherModeNoGrab = 1     // 其余直接不抢
 };
 
+typedef NS_ENUM(NSInteger, JJBackgroundMode) {
+    JJBackgroundModeTimer = 0,     // 定时刷新（省电模式）
+    JJBackgroundModeLocation = 1,  // 位置服务（稳定模式）
+    JJBackgroundModeAudio = 2      // 无声音频（强力模式）
+};
+
 @interface JJRedBagManager : NSObject
 
 @property (nonatomic, assign) BOOL enabled;                    // 总开关
@@ -31,6 +37,7 @@ typedef NS_ENUM(NSInteger, JJDelayOtherMode) {
 @property (nonatomic, assign) BOOL grabSelfEnabled;            // 抢自己发的红包
 @property (nonatomic, assign) BOOL grabPrivateEnabled;         // 抢私信红包
 @property (nonatomic, assign) BOOL backgroundGrabEnabled;      // 后台和锁屏自动抢
+@property (nonatomic, assign) JJBackgroundMode backgroundMode; // 后台保活模式
 @property (nonatomic, assign) BOOL shakeToConfigEnabled;       // 摇一摇呼出配置开关
 
 // 自动回复设置

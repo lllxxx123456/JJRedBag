@@ -2,6 +2,7 @@
 #import "JJRedBagManager.h"
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagParam.h"
+#import <UserNotifications/UserNotifications.h>
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject

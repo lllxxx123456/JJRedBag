@@ -31,6 +31,7 @@
         _grabSelfEnabled = NO;
         _grabPrivateEnabled = NO;
         _backgroundGrabEnabled = NO;
+        _backgroundMode = JJBackgroundModeTimer; // 默认定时器模式
         _shakeToConfigEnabled = NO; // 默认关闭
         
         // 自动回复默认设置
@@ -66,6 +67,7 @@
     settings[@"grabSelfEnabled"] = @(self.grabSelfEnabled);
     settings[@"grabPrivateEnabled"] = @(self.grabPrivateEnabled);
     settings[@"backgroundGrabEnabled"] = @(self.backgroundGrabEnabled);
+    settings[@"backgroundMode"] = @(self.backgroundMode);
     settings[@"shakeToConfigEnabled"] = @(self.shakeToConfigEnabled);
     
     // 自动回复
@@ -102,6 +104,7 @@
         self.grabSelfEnabled = [settings[@"grabSelfEnabled"] boolValue];
         self.grabPrivateEnabled = [settings[@"grabPrivateEnabled"] boolValue];
         self.backgroundGrabEnabled = [settings[@"backgroundGrabEnabled"] boolValue];
+        self.backgroundMode = [settings[@"backgroundMode"] integerValue];
         if (settings[@"shakeToConfigEnabled"]) {
             self.shakeToConfigEnabled = [settings[@"shakeToConfigEnabled"] boolValue];
         } else {
@@ -237,7 +240,7 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         JJRedBagSettingsController *settingsVC = [[JJRedBagSettingsController alloc] init];
         UINavigationController *navVC = [[UINavigationController alloc] initWithRootViewController:settingsVC];
-        navVC.modalPresentationStyle = UIModalPresentationFullScreen;
+        navVC.modalPresentationStyle = UIModalPresentationPageSheet; // 支持右滑返回
         
         UIViewController *topVC = [self topViewController];
         [topVC presentViewController:navVC animated:YES completion:nil];

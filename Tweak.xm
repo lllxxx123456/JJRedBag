@@ -97,8 +97,19 @@
     NSString *chatId = isGroupSender ? toUser : fromUser;
     BOOL isGroup = isGroupReceiver || isGroupSender;
     
+    // 解析红包发送者
+    NSString *realSender = nil;
+    if (isGroup) {
+        // 群聊中，从消息内容解析发送者
+        realSender = msgWrap.m_nsRealChatUsr;
+    } else {
+        // 私聊中，发送者就是fromUser
+        realSender = fromUser;
+    }
+    
     // 自己发的红包判断
-    if ((isSender || isGroupSender) && !manager.grabSelfEnabled) {
+    BOOL isSelfRedBag = [realSender isEqualToString:selfUserName] || isSender || isGroupSender;
+    if (isSelfRedBag && !manager.grabSelfEnabled) {
         return;
     }
     
@@ -373,6 +384,155 @@
 
 #pragma mark - 后台保活支持
 
+#import <AVFoundation/AVFoundation.h>
+#import <CoreLocation/CoreLocation.h>
+
+static UIBackgroundTaskIdentifier jj_bgTask = UIBackgroundTaskInvalid;
+static NSTimer *jj_keepAliveTimer = nil;
+static AVAudioPlayer *jj_silentAudioPlayer = nil;
+static CLLocationManager *jj_locationManager = nil;
+
+static void jj_startBackgroundKeepAlive(void) {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled || !manager.backgroundGrabEnabled) return;
+    
+    UIApplication *app = [UIApplication sharedApplication];
+    
+    // 结束之前的后台任务
+    if (jj_bgTask != UIBackgroundTaskInvalid) {
+        [app endBackgroundTask:jj_bgTask];
+        jj_bgTask = UIBackgroundTaskInvalid;
+    }
+    
+    // 开始新的后台任务
+    jj_bgTask = [app beginBackgroundTaskWithExpirationHandler:^{
+        if (jj_bgTask != UIBackgroundTaskInvalid) {
+            [app endBackgroundTask:jj_bgTask];
+            jj_bgTask = UIBackgroundTaskInvalid;
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_startBackgroundKeepAlive();
+        });
+    }];
+}
+
+static void jj_startSilentAudio(void) {
+    if (jj_silentAudioPlayer && jj_silentAudioPlayer.isPlaying) return;
+    
+    @try {
+        AVAudioSession *session = [AVAudioSession sharedInstance];
+        [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
+        [session setActive:YES error:nil];
+        
+        // 创建一个极短的静音音频数据
+        NSString *silentPath = [[NSBundle mainBundle] pathForResource:@"silent" ofType:@"mp3"];
+        NSURL *silentURL = nil;
+        
+        if (silentPath) {
+            silentURL = [NSURL fileURLWithPath:silentPath];
+        } else {
+            // 如果没有静音文件，创建一个空的音频
+            NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"jj_silent.wav"];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:tempPath]) {
+                // 创建一个最小的WAV文件头 (44字节头 + 1秒16kHz单声道静音)
+                NSMutableData *wavData = [NSMutableData data];
+                uint32_t sampleRate = 16000;
+                uint32_t dataSize = sampleRate * 2; // 1秒 * 16位
+                uint32_t fileSize = 36 + dataSize;
+                
+                // RIFF header
+                [wavData appendBytes:"RIFF" length:4];
+                [wavData appendBytes:&fileSize length:4];
+                [wavData appendBytes:"WAVE" length:4];
+                
+                // fmt chunk
+                [wavData appendBytes:"fmt " length:4];
+                uint32_t fmtSize = 16;
+                [wavData appendBytes:&fmtSize length:4];
+                uint16_t audioFormat = 1; // PCM
+                [wavData appendBytes:&audioFormat length:2];
+                uint16_t numChannels = 1;
+                [wavData appendBytes:&numChannels length:2];
+                [wavData appendBytes:&sampleRate length:4];
+                uint32_t byteRate = sampleRate * 2;
+                [wavData appendBytes:&byteRate length:4];
+                uint16_t blockAlign = 2;
+                [wavData appendBytes:&blockAlign length:2];
+                uint16_t bitsPerSample = 16;
+                [wavData appendBytes:&bitsPerSample length:2];
+                
+                // data chunk
+                [wavData appendBytes:"data" length:4];
+                [wavData appendBytes:&dataSize length:4];
+                
+                // 静音数据
+                uint8_t *silence = calloc(dataSize, 1);
+                [wavData appendBytes:silence length:dataSize];
+                free(silence);
+                
+                [wavData writeToFile:tempPath atomically:YES];
+            }
+            silentURL = [NSURL fileURLWithPath:tempPath];
+        }
+        
+        if (silentURL) {
+            jj_silentAudioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:silentURL error:nil];
+            jj_silentAudioPlayer.numberOfLoops = -1; // 无限循环
+            jj_silentAudioPlayer.volume = 0.01; // 极小音量
+            [jj_silentAudioPlayer play];
+        }
+    } @catch (NSException *e) {
+        // 静默处理
+    }
+}
+
+static void jj_stopSilentAudio(void) {
+    if (jj_silentAudioPlayer) {
+        [jj_silentAudioPlayer stop];
+        jj_silentAudioPlayer = nil;
+    }
+}
+
+static void jj_startLocationUpdates(void) {
+    if (!jj_locationManager) {
+        jj_locationManager = [[CLLocationManager alloc] init];
+        jj_locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers; // 低精度省电
+        jj_locationManager.distanceFilter = 99999; // 几乎不触发更新
+        jj_locationManager.allowsBackgroundLocationUpdates = YES;
+        jj_locationManager.pausesLocationUpdatesAutomatically = NO;
+    }
+    
+    CLAuthorizationStatus status;
+    if (@available(iOS 14.0, *)) {
+        status = jj_locationManager.authorizationStatus;
+    } else {
+        status = [CLLocationManager authorizationStatus];
+    }
+    
+    if (status == kCLAuthorizationStatusAuthorizedAlways || status == kCLAuthorizationStatusAuthorizedWhenInUse) {
+        [jj_locationManager startUpdatingLocation];
+    }
+}
+
+static void jj_stopLocationUpdates(void) {
+    if (jj_locationManager) {
+        [jj_locationManager stopUpdatingLocation];
+    }
+}
+
+static void jj_stopAllBackgroundModes(void) {
+    if (jj_keepAliveTimer) {
+        [jj_keepAliveTimer invalidate];
+        jj_keepAliveTimer = nil;
+    }
+    if (jj_bgTask != UIBackgroundTaskInvalid) {
+        [[UIApplication sharedApplication] endBackgroundTask:jj_bgTask];
+        jj_bgTask = UIBackgroundTaskInvalid;
+    }
+    jj_stopSilentAudio();
+    jj_stopLocationUpdates();
+}
+
 %hook MicroMessengerAppDelegate
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
@@ -380,17 +540,52 @@
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (manager.enabled && manager.backgroundGrabEnabled) {
-        // 开启后台任务保持活跃
-        UIApplication *app = [UIApplication sharedApplication];
-        __block UIBackgroundTaskIdentifier bgTask = [app beginBackgroundTaskWithExpirationHandler:^{
-            [app endBackgroundTask:bgTask];
-            bgTask = UIBackgroundTaskInvalid;
-        }];
+        // 先停止所有
+        jj_stopAllBackgroundModes();
+        
+        // 根据模式启动对应保活方式
+        switch (manager.backgroundMode) {
+            case JJBackgroundModeTimer:
+                // 定时刷新模式
+                jj_startBackgroundKeepAlive();
+                jj_keepAliveTimer = [NSTimer scheduledTimerWithTimeInterval:25.0 repeats:YES block:^(NSTimer *timer) {
+                    jj_startBackgroundKeepAlive();
+                }];
+                [[NSRunLoop mainRunLoop] addTimer:jj_keepAliveTimer forMode:NSRunLoopCommonModes];
+                break;
+                
+            case JJBackgroundModeLocation:
+                // 位置服务模式
+                jj_startBackgroundKeepAlive();
+                jj_startLocationUpdates();
+                break;
+                
+            case JJBackgroundModeAudio:
+                // 无声音频模式
+                jj_startBackgroundKeepAlive();
+                jj_startSilentAudio();
+                break;
+        }
     }
 }
 
 - (void)applicationWillEnterForeground:(UIApplication *)application {
     %orig;
+    
+    // 进入前台停止所有后台保活
+    jj_stopAllBackgroundModes();
+}
+
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    %orig;
+    
+    // 请求通知权限
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (manager.localNotificationEnabled) {
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
+                              completionHandler:^(BOOL granted, NSError *error) {}];
+    }
 }
 
 %end
@@ -541,33 +736,36 @@
     
     // 格式化金额 (分转元)
     double amountYuan = amount / 100.0;
+    double totalYuan = manager.totalAmount / 100.0;
     
-    // 构建通知消息
+    // 构建通知消息 - 新格式
     NSMutableString *msg = [NSMutableString string];
-    [msg appendString:@"[JJ] 红包到账\n"];
+    [msg appendString:@"又为您抢到一个红包：\n"];
     [msg appendFormat:@"金额：%.2f元\n", amountYuan];
+    [msg appendFormat:@"总额：%.2f元\n", totalYuan];
     
     // 显示发送者
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
     
     if (param.isGroup) {
+        // 群聊红包：显示群名和发送者
         CContact *groupContact = [contactMgr getContactByName:param.sessionUserName];
         NSString *groupName = [groupContact getContactDisplayName] ?: @"未知群聊";
-        [msg appendFormat:@"来源：[群] %@\n", groupName];
         
-        // 尝试获取群内发送者名称
         if (param.realChatUser && param.realChatUser.length > 0) {
             CContact *senderContact = [contactMgr getContactByName:param.realChatUser];
             NSString *senderName = [senderContact getContactDisplayName] ?: param.realChatUser;
-            [msg appendFormat:@"用户：%@", senderName];
+            [msg appendFormat:@"来源：【群】 %@ - %@\n", groupName, senderName];
+        } else {
+            [msg appendFormat:@"来源：【群】 %@\n", groupName];
         }
     } else {
         CContact *senderContact = [contactMgr getContactByName:param.sessionUserName];
         NSString *senderName = [senderContact getContactDisplayName] ?: @"未知好友";
-        [msg appendFormat:@"来源：[私] %@", senderName];
+        [msg appendFormat:@"来源：【私】 %@\n", senderName];
     }
     
-    [msg appendFormat:@"\n时间：%@", [self jj_getCurrentTime]];
+    [msg appendFormat:@"时间：%@", [self jj_getCurrentTime]];
     
     [self jj_sendMessage:msg toUser:targetUser];
 }

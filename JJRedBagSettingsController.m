@@ -93,7 +93,11 @@
 }
 
 - (void)handleAmountTap {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"累计金额" message:nil preferredStyle:UIAlertControllerStyleAlert];
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    double amount = manager.totalAmount / 100.0;
+    
+    NSString *message = [NSString stringWithFormat:@"恭喜发财！\n\n已为您抢了：%.2f元", amount];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
     
     [alert addAction:[UIAlertAction actionWithTitle:@"谢谢作者" style:UIAlertActionStyleDefault handler:nil]];
     
@@ -144,6 +148,7 @@
     // Section 2: Filter & Background
     if (section == 2) {
         NSInteger count = 3;
+        if (manager.backgroundGrabEnabled) count++; // 保活模式选择
         if (manager.filterKeywordEnabled) count++;
         return count;
     }
@@ -175,10 +180,10 @@
     
     if (!title) return nil;
     
-    UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 5, tableView.bounds.size.width - 32, 30)];
+    UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 44)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(20, 8, tableView.bounds.size.width - 40, 32)];
     label.text = title;
-    label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+    label.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     if (@available(iOS 13.0, *)) {
         label.textColor = [UIColor labelColor];
     } else {
@@ -190,7 +195,7 @@
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
     if (section == 0) return 10;
-    return 40;
+    return 44;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -212,18 +217,20 @@
     cell.accessoryView = nil;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    cell.indentationLevel = 0;
+    cell.indentationWidth = 0;
     
     if (@available(iOS 13.0, *)) {
         cell.textLabel.textColor = [UIColor labelColor];
         cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
     }
     
-    // Font setup
-    cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightRegular];
+    // Font setup - 默认子项字体
+    cell.textLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
     
     if (indexPath.section == 0) {
         cell.textLabel.text = @"插件主开关";
-        cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+        cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.enabled;
         [sw addTarget:self action:@selector(mainSwitchChanged:) forControlEvents:UIControlEventValueChanged];
@@ -315,8 +322,9 @@
 
 - (void)configureSection2:(UITableViewCell *)cell indexPath:(NSIndexPath *)indexPath manager:(JJRedBagManager *)manager {
     NSInteger row = indexPath.row;
+    NSInteger currentIndex = 0;
     
-    if (row == 0) {
+    if (row == currentIndex) {
         cell.textLabel.text = @"后台防杀冻";
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.backgroundGrabEnabled;
@@ -325,7 +333,23 @@
         cell.accessoryView = sw;
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 1) {
+        return;
+    }
+    currentIndex++;
+    
+    if (manager.backgroundGrabEnabled) {
+        if (row == currentIndex) {
+            cell.textLabel.text = @"  保活模式";
+            NSString *modeName = @"省电模式";
+            if (manager.backgroundMode == JJBackgroundModeLocation) modeName = @"稳定模式";
+            else if (manager.backgroundMode == JJBackgroundModeAudio) modeName = @"强力模式";
+            cell.detailTextLabel.text = modeName;
+            return;
+        }
+        currentIndex++;
+    }
+    
+    if (row == currentIndex) {
         cell.textLabel.text = @"摇一摇配置";
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.shakeToConfigEnabled;
@@ -334,7 +358,11 @@
         cell.accessoryView = sw;
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 2) {
+        return;
+    }
+    currentIndex++;
+    
+    if (row == currentIndex) {
         cell.textLabel.text = @"过滤关键词";
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = manager.filterKeywordEnabled;
@@ -342,9 +370,17 @@
         cell.accessoryView = sw;
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 3) {
-        cell.textLabel.text = @"关键词列表";
-        cell.detailTextLabel.text = manager.filterKeywords.count > 0 ? [NSString stringWithFormat:@"%lu 个", (unsigned long)manager.filterKeywords.count] : @"未设置";
+        return;
+    }
+    currentIndex++;
+    
+    if (row == currentIndex) {
+        cell.textLabel.text = @"  关键词列表";
+        if (manager.filterKeywords.count > 0) {
+            cell.detailTextLabel.text = [manager.filterKeywords componentsJoinedByString:@", "];
+        } else {
+            cell.detailTextLabel.text = @"未设置";
+        }
     }
 }
 
@@ -482,7 +518,16 @@
         }
         
     } else if (indexPath.section == 2) {
-        if (indexPath.row == 3) {
+        NSInteger currentIndex = 1;
+        if (manager.backgroundGrabEnabled) {
+            if (indexPath.row == currentIndex) {
+                [self showBackgroundModeSelector];
+                return;
+            }
+            currentIndex++;
+        }
+        currentIndex += 2; // 摇一摇配置 + 过滤关键词
+        if (manager.filterKeywordEnabled && indexPath.row == currentIndex) {
             [self showKeywordEditor];
         }
     } else if (indexPath.section == 3) {
@@ -524,7 +569,12 @@
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (sender.tag == 200) manager.grabSelfEnabled = sender.on;
     if (sender.tag == 201) manager.grabPrivateEnabled = sender.on;
-    if (sender.tag == 202) manager.backgroundGrabEnabled = sender.on;
+    if (sender.tag == 202) {
+        manager.backgroundGrabEnabled = sender.on;
+        [manager saveSettings];
+        [self.tableView reloadData];
+        return;
+    }
     if (sender.tag == 203) {
         manager.shakeToConfigEnabled = sender.on;
         if (sender.on) {
@@ -586,6 +636,65 @@
 
 - (void)showShakeHintAlert {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:@"开启后，在微信界面摇一摇手机即可快速打开此设置页面。" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showBackgroundModeSelector {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择保活模式" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"省电模式（定时刷新）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        manager.backgroundMode = JJBackgroundModeTimer;
+        [manager saveSettings];
+        [self.tableView reloadData];
+        [self showBackgroundModeHint:JJBackgroundModeTimer];
+    }]];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"稳定模式（位置服务）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        manager.backgroundMode = JJBackgroundModeLocation;
+        [manager saveSettings];
+        [self.tableView reloadData];
+        [self showBackgroundModeHint:JJBackgroundModeLocation];
+    }]];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"强力模式（无声音频）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        manager.backgroundMode = JJBackgroundModeAudio;
+        [manager saveSettings];
+        [self.tableView reloadData];
+        [self showBackgroundModeHint:JJBackgroundModeAudio];
+    }]];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    
+    if (alert.popoverPresentationController) {
+        alert.popoverPresentationController.sourceView = self.view;
+        alert.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width/2, self.view.bounds.size.height/2, 0, 0);
+        alert.popoverPresentationController.permittedArrowDirections = 0;
+    }
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showBackgroundModeHint:(JJBackgroundMode)mode {
+    NSString *title = nil;
+    NSString *message = nil;
+    
+    switch (mode) {
+        case JJBackgroundModeTimer:
+            title = @"省电模式";
+            message = @"通过定时刷新后台任务保持活跃。\n\n优点：耗电最少\n缺点：系统资源紧张时可能被终止，保活效果一般\n\n适合：对耗电敏感，不要求100%抢到";
+            break;
+        case JJBackgroundModeLocation:
+            title = @"稳定模式";
+            message = @"通过低精度位置服务保持后台运行。\n\n优点：稳定性好，耗电适中\n缺点：需要位置权限，状态栏会显示定位图标\n\n适合：需要较稳定的后台抢红包";
+            break;
+        case JJBackgroundModeAudio:
+            title = @"强力模式";
+            message = @"通过播放无声音频保持后台运行。\n\n优点：最稳定，几乎不会被系统终止\n缺点：耗电较多，可能导致发热\n\n适合：必须确保后台抢红包成功";
+            break;
+    }
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }

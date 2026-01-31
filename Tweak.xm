@@ -710,10 +710,6 @@
             [alert addAction:settingsAction];
             [alert addAction:cancelAction];
             
-            UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-            while (topVC.presentedViewController) {
-                topVC = topVC.presentedViewController;
-            }
             [topVC presentViewController:alert animated:YES completion:nil];
         });
     }

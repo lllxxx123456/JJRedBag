@@ -174,11 +174,15 @@
         if (manager.autoReceiveGroupEnabled) {
             count++; // 群聊收款列表
         }
-        count += 3; // 收款回复开关, 私聊回复, 群聊回复
+        count += 2; // 私聊回复, 群聊回复
         if (manager.receiveAutoReplyPrivateEnabled || manager.receiveAutoReplyGroupEnabled) {
             count++; // 回复内容
         }
-        count += 2; // 收款通知, 本地通知
+        count++; // 收款通知
+        if (manager.receiveNotificationEnabled) {
+            count++; // 收款通知接收人
+        }
+        count++; // 本地通知
         return count;
     }
     
@@ -553,13 +557,13 @@
     }
     currentIndex++;
     
-    // 群聊收款列表（指定群员）
+    // 群聊收款列表（指定群）
     if (manager.autoReceiveGroupEnabled) {
         if (row == currentIndex) {
-            cell.textLabel.text = @"    ⤷ 指定群收款";
-            cell.textLabel.font = [UIFont systemFontOfSize:14];
-            NSInteger groupCount = manager.groupReceiveMembers.count;
-            cell.detailTextLabel.text = groupCount > 0 ? [NSString stringWithFormat:@"已设置%ld个群", (long)groupCount] : @"全部群";
+            cell.textLabel.text = @"⤷ 指定收款群";
+            cell.textLabel.font = [UIFont systemFontOfSize:15];
+            NSInteger groupCount = manager.receiveGroups.count;
+            cell.detailTextLabel.text = groupCount > 0 ? [NSString stringWithFormat:@"已选%ld个群", (long)groupCount] : @"全部群";
             return;
         }
         currentIndex++;
@@ -598,8 +602,8 @@
     // 回复内容
     if (manager.receiveAutoReplyPrivateEnabled || manager.receiveAutoReplyGroupEnabled) {
         if (row == currentIndex) {
-            cell.textLabel.text = @"    ⤷ 回复内容";
-            cell.textLabel.font = [UIFont systemFontOfSize:14];
+            cell.textLabel.text = @"⤷ 回复内容";
+            cell.textLabel.font = [UIFont systemFontOfSize:15];
             cell.detailTextLabel.text = manager.receiveAutoReplyContent.length > 0 ? manager.receiveAutoReplyContent : @"点击设置";
             return;
         }
@@ -620,6 +624,17 @@
         return;
     }
     currentIndex++;
+    
+    // 收款通知接收人
+    if (manager.receiveNotificationEnabled) {
+        if (row == currentIndex) {
+            cell.textLabel.text = @"⤷ 通知接收人";
+            cell.textLabel.font = [UIFont systemFontOfSize:15];
+            cell.detailTextLabel.text = manager.receiveNotificationChatName.length > 0 ? manager.receiveNotificationChatName : @"点击设置";
+            return;
+        }
+        currentIndex++;
+    }
     
     // 收款弹窗通知
     if (row == currentIndex) {
@@ -714,6 +729,14 @@
         if (manager.receiveAutoReplyPrivateEnabled || manager.receiveAutoReplyGroupEnabled) {
             if (indexPath.row == currentIndex) {
                 [self showReceiveReplyContentInput];
+                return;
+            }
+            currentIndex++;
+        }
+        currentIndex++; // 跳过收款消息通知开关
+        if (manager.receiveNotificationEnabled) {
+            if (indexPath.row == currentIndex) {
+                [self showReceiveNotificationContactSelect];
                 return;
             }
         }
@@ -1056,6 +1079,12 @@
         [self.tableView reloadData];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showReceiveNotificationContactSelect {
+    JJRedBagContactSelectController *vc = [[JJRedBagContactSelectController alloc] init];
+    vc.isReceiveMode = YES;
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (NSUInteger)getSelectedGroupCount {

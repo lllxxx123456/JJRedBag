@@ -122,7 +122,7 @@
 #pragma mark - TableView DataSource
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 5;
+    return 6;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -168,6 +168,20 @@
         return count;
     }
     
+    // Section 5: Auto Receive (收款设置)
+    if (section == 5) {
+        NSInteger count = 2; // 私聊收款, 群聊收款
+        if (manager.autoReceiveGroupEnabled) {
+            count++; // 群聊收款列表
+        }
+        count += 3; // 收款回复开关, 私聊回复, 群聊回复
+        if (manager.receiveAutoReplyPrivateEnabled || manager.receiveAutoReplyGroupEnabled) {
+            count++; // 回复内容
+        }
+        count += 2; // 收款通知, 本地通知
+        return count;
+    }
+    
     return 0;
 }
 
@@ -177,6 +191,7 @@
     if (section == 2) title = @"高级功能";
     if (section == 3) title = @"自动回复";
     if (section == 4) title = @"通知统计";
+    if (section == 5) title = @"自动收款";
     
     if (!title) return nil;
     
@@ -246,6 +261,8 @@
         [self configureSection3:cell indexPath:indexPath manager:manager];
     } else if (indexPath.section == 4) {
         [self configureSection4:cell indexPath:indexPath manager:manager];
+    } else if (indexPath.section == 5) {
+        [self configureSection5:cell indexPath:indexPath manager:manager];
     }
     
     return cell;
@@ -502,6 +519,123 @@
     }
 }
 
+- (void)configureSection5:(UITableViewCell *)cell indexPath:(NSIndexPath *)indexPath manager:(JJRedBagManager *)manager {
+    NSInteger row = indexPath.row;
+    NSInteger currentIndex = 0;
+    
+    // 私聊自动收款
+    if (row == currentIndex) {
+        cell.textLabel.text = @"⤷ 私聊自动收款";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.autoReceivePrivateEnabled;
+        sw.tag = 501;
+        [sw addTarget:self action:@selector(receiveSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return;
+    }
+    currentIndex++;
+    
+    // 群聊自动收款
+    if (row == currentIndex) {
+        cell.textLabel.text = @"⤷ 群聊自动收款";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.autoReceiveGroupEnabled;
+        sw.tag = 502;
+        [sw addTarget:self action:@selector(receiveSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return;
+    }
+    currentIndex++;
+    
+    // 群聊收款列表（指定群员）
+    if (manager.autoReceiveGroupEnabled) {
+        if (row == currentIndex) {
+            cell.textLabel.text = @"    ⤷ 指定群收款";
+            cell.textLabel.font = [UIFont systemFontOfSize:14];
+            NSInteger groupCount = manager.groupReceiveMembers.count;
+            cell.detailTextLabel.text = groupCount > 0 ? [NSString stringWithFormat:@"已设置%ld个群", (long)groupCount] : @"全部群";
+            return;
+        }
+        currentIndex++;
+    }
+    
+    // 私聊收款回复
+    if (row == currentIndex) {
+        cell.textLabel.text = @"⤷ 私聊收款回复";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.receiveAutoReplyPrivateEnabled;
+        sw.tag = 503;
+        [sw addTarget:self action:@selector(receiveSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return;
+    }
+    currentIndex++;
+    
+    // 群聊收款回复
+    if (row == currentIndex) {
+        cell.textLabel.text = @"⤷ 群聊收款回复";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.receiveAutoReplyGroupEnabled;
+        sw.tag = 504;
+        [sw addTarget:self action:@selector(receiveSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return;
+    }
+    currentIndex++;
+    
+    // 回复内容
+    if (manager.receiveAutoReplyPrivateEnabled || manager.receiveAutoReplyGroupEnabled) {
+        if (row == currentIndex) {
+            cell.textLabel.text = @"    ⤷ 回复内容";
+            cell.textLabel.font = [UIFont systemFontOfSize:14];
+            cell.detailTextLabel.text = manager.receiveAutoReplyContent.length > 0 ? manager.receiveAutoReplyContent : @"点击设置";
+            return;
+        }
+        currentIndex++;
+    }
+    
+    // 收款消息通知
+    if (row == currentIndex) {
+        cell.textLabel.text = @"⤷ 收款消息通知";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.receiveNotificationEnabled;
+        sw.tag = 505;
+        [sw addTarget:self action:@selector(receiveSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return;
+    }
+    currentIndex++;
+    
+    // 收款弹窗通知
+    if (row == currentIndex) {
+        cell.textLabel.text = @"⤷ 收款弹窗通知";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.receiveLocalNotificationEnabled;
+        sw.tag = 506;
+        [sw addTarget:self action:@selector(receiveSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return;
+    }
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
@@ -566,6 +700,22 @@
     } else if (indexPath.section == 4) {
         if (manager.notificationEnabled && indexPath.row == 1) {
             [self showNotificationContactSelect];
+        }
+    } else if (indexPath.section == 5) {
+        NSInteger currentIndex = 2; // 跳过私聊/群聊开关
+        if (manager.autoReceiveGroupEnabled) {
+            if (indexPath.row == currentIndex) {
+                [self showGroupReceiveSelect];
+                return;
+            }
+            currentIndex++;
+        }
+        currentIndex += 2; // 跳过私聊/群聊回复开关
+        if (manager.receiveAutoReplyPrivateEnabled || manager.receiveAutoReplyGroupEnabled) {
+            if (indexPath.row == currentIndex) {
+                [self showReceiveReplyContentInput];
+                return;
+            }
         }
     }
 }
@@ -653,6 +803,18 @@
         }
     }
     if (sender.tag == 401) manager.localNotificationEnabled = sender.on;
+    [manager saveSettings];
+    [self.tableView reloadData];
+}
+
+- (void)receiveSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (sender.tag == 501) manager.autoReceivePrivateEnabled = sender.on;
+    if (sender.tag == 502) manager.autoReceiveGroupEnabled = sender.on;
+    if (sender.tag == 503) manager.receiveAutoReplyPrivateEnabled = sender.on;
+    if (sender.tag == 504) manager.receiveAutoReplyGroupEnabled = sender.on;
+    if (sender.tag == 505) manager.receiveNotificationEnabled = sender.on;
+    if (sender.tag == 506) manager.receiveLocalNotificationEnabled = sender.on;
     [manager saveSettings];
     [self.tableView reloadData];
 }
@@ -870,6 +1032,30 @@
 - (void)showNotificationContactSelect {
     JJRedBagContactSelectController *vc = [[JJRedBagContactSelectController alloc] init];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)showGroupReceiveSelect {
+    JJRedBagGroupSelectController *vc = [[JJRedBagGroupSelectController alloc] initWithMode:JJGrabModeOnly];
+    vc.isReceiveMode = YES;
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)showReceiveReplyContentInput {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"收款回复内容" message:@"请输入收款后自动回复内容" preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"已收到，谢谢";
+        textField.text = manager.receiveAutoReplyContent;
+    }];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        manager.receiveAutoReplyContent = alert.textFields.firstObject.text;
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (NSUInteger)getSelectedGroupCount {

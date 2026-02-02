@@ -114,6 +114,9 @@
 - (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isSelfRedBag:(BOOL)isSelfRedBag;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
 - (void)jj_processTransferMessage:(CMessageWrap *)msgWrap;
+- (void)jj_sendReceiveAutoReply:(NSDictionary *)params isGroup:(BOOL)isGroup;
+- (void)jj_sendReceiveNotification:(NSDictionary *)params amount:(long long)amount;
+- (void)jj_sendReceiveLocalNotification:(NSDictionary *)params amount:(long long)amount;
 @end
 
 @interface WCPayLogicMgr : NSObject

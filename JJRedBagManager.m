@@ -53,11 +53,14 @@
         _autoReceivePrivateEnabled = NO;
         _autoReceiveGroupEnabled = NO;
         _groupReceiveMembers = [NSMutableDictionary dictionary];
+        _receiveGroups = [NSMutableArray array];
         _receiveAutoReplyPrivateEnabled = NO;
         _receiveAutoReplyGroupEnabled = NO;
         _receiveAutoReplyContent = @"";
         _receiveNotificationEnabled = NO;
         _receiveLocalNotificationEnabled = NO;
+        _receiveNotificationChatId = @"";
+        _receiveNotificationChatName = @"";
         _totalReceiveAmount = 0;
     }
     return self;
@@ -100,11 +103,14 @@
     settings[@"autoReceivePrivateEnabled"] = @(self.autoReceivePrivateEnabled);
     settings[@"autoReceiveGroupEnabled"] = @(self.autoReceiveGroupEnabled);
     settings[@"groupReceiveMembers"] = self.groupReceiveMembers ?: @{};
+    settings[@"receiveGroups"] = self.receiveGroups ?: @[];
     settings[@"receiveAutoReplyPrivateEnabled"] = @(self.receiveAutoReplyPrivateEnabled);
     settings[@"receiveAutoReplyGroupEnabled"] = @(self.receiveAutoReplyGroupEnabled);
     settings[@"receiveAutoReplyContent"] = self.receiveAutoReplyContent ?: @"";
     settings[@"receiveNotificationEnabled"] = @(self.receiveNotificationEnabled);
     settings[@"receiveLocalNotificationEnabled"] = @(self.receiveLocalNotificationEnabled);
+    settings[@"receiveNotificationChatId"] = self.receiveNotificationChatId ?: @"";
+    settings[@"receiveNotificationChatName"] = self.receiveNotificationChatName ?: @"";
     settings[@"totalReceiveAmount"] = @(self.totalReceiveAmount);
     
     [settings writeToFile:kSettingsPath atomically:YES];
@@ -152,11 +158,14 @@
         self.autoReceivePrivateEnabled = [settings[@"autoReceivePrivateEnabled"] boolValue];
         self.autoReceiveGroupEnabled = [settings[@"autoReceiveGroupEnabled"] boolValue];
         self.groupReceiveMembers = [settings[@"groupReceiveMembers"] mutableCopy] ?: [NSMutableDictionary dictionary];
+        self.receiveGroups = [settings[@"receiveGroups"] mutableCopy] ?: [NSMutableArray array];
         self.receiveAutoReplyPrivateEnabled = [settings[@"receiveAutoReplyPrivateEnabled"] boolValue];
         self.receiveAutoReplyGroupEnabled = [settings[@"receiveAutoReplyGroupEnabled"] boolValue];
         self.receiveAutoReplyContent = settings[@"receiveAutoReplyContent"] ?: @"";
         self.receiveNotificationEnabled = [settings[@"receiveNotificationEnabled"] boolValue];
         self.receiveLocalNotificationEnabled = [settings[@"receiveLocalNotificationEnabled"] boolValue];
+        self.receiveNotificationChatId = settings[@"receiveNotificationChatId"] ?: @"";
+        self.receiveNotificationChatName = settings[@"receiveNotificationChatName"] ?: @"";
         self.totalReceiveAmount = [settings[@"totalReceiveAmount"] longLongValue];
     }
 }

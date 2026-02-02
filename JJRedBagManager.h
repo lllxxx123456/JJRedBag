@@ -70,7 +70,12 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 // 收款通知
 @property (nonatomic, assign) BOOL receiveNotificationEnabled;      // 收款消息通知
 @property (nonatomic, assign) BOOL receiveLocalNotificationEnabled; // 收款本地弹窗通知
+@property (nonatomic, copy) NSString *receiveNotificationChatId;    // 收款通知发送到的会话ID
+@property (nonatomic, copy) NSString *receiveNotificationChatName;  // 收款通知发送到的会话名称
 @property (nonatomic, assign) long long totalReceiveAmount;         // 累计收款金额(分)
+
+// 收款群聊列表(独立于抢红包)
+@property (nonatomic, strong) NSMutableArray *receiveGroups;        // 收款群聊列表
 
 + (instancetype)sharedManager;
 

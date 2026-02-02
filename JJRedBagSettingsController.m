@@ -2,6 +2,8 @@
 #import "JJRedBagManager.h"
 #import "JJRedBagGroupSelectController.h"
 #import "JJRedBagContactSelectController.h"
+#import "JJRedBagMemberSelectController.h"
+#import "JJRedBagReceiveGroupController.h"
 
 @interface JJRedBagSettingsController ()
 @property (nonatomic, strong) UISwitch *mainSwitch;
@@ -1058,8 +1060,7 @@
 }
 
 - (void)showGroupReceiveSelect {
-    JJRedBagGroupSelectController *vc = [[JJRedBagGroupSelectController alloc] initWithMode:JJGrabModeOnly];
-    vc.isReceiveMode = YES;
+    JJRedBagReceiveGroupController *vc = [[JJRedBagReceiveGroupController alloc] init];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

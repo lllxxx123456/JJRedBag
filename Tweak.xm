@@ -363,11 +363,9 @@
     if (isGroup) {
         if (!manager.autoReceiveGroupEnabled) return;
         
-        // 检查是否指定了群员
-        NSArray *allowedMembers = manager.groupReceiveMembers[fromUser];
-        if (allowedMembers && allowedMembers.count > 0) {
-            NSString *payerUsername = payInfo.transfer_payer_username;
-            if (![allowedMembers containsObject:payerUsername]) return;
+        // 检查是否指定了收款群
+        if (manager.receiveGroups.count > 0) {
+            if (![manager.receiveGroups containsObject:fromUser]) return;
         }
     } else {
         if (!manager.autoReceivePrivateEnabled) return;
@@ -441,7 +439,7 @@
 %new
 - (void)jj_sendReceiveNotification:(NSDictionary *)params amount:(long long)amount {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (!manager.notificationChatId || manager.notificationChatId.length == 0) return;
+    if (!manager.receiveNotificationChatId || manager.receiveNotificationChatId.length == 0) return;
     
     double amountYuan = amount / 100.0;
     NSString *memo = params[@"memo"] ?: @"";
@@ -455,7 +453,7 @@
     
     CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
     if (msgMgr) {
-        [msgMgr SendTextMessage:msg toUsr:manager.notificationChatId];
+        [msgMgr SendTextMessage:msg toUsr:manager.receiveNotificationChatId];
     }
 }
 

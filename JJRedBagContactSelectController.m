@@ -101,8 +101,16 @@
     self.didSelect = YES;
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    manager.notificationChatId = contact.m_nsUsrName;
-    manager.notificationChatName = [contact getContactDisplayName];
+    
+    if (self.isReceiveMode) {
+        // 收款通知接收人
+        manager.receiveNotificationChatId = contact.m_nsUsrName;
+        manager.receiveNotificationChatName = [contact getContactDisplayName];
+    } else {
+        // 红包通知接收人
+        manager.notificationChatId = contact.m_nsUsrName;
+        manager.notificationChatName = [contact getContactDisplayName];
+    }
     [manager saveSettings];
     
     // 返回设置页面，弹出两级（SessionSelectController 和 ContactSelectController）

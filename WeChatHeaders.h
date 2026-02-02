@@ -37,6 +37,17 @@
 @interface WCPayInfoItem : NSObject
 @property (nonatomic, copy) NSString *m_c2cNativeUrl;
 @property (nonatomic, copy) NSString *m_c2cSignature;
+@property (nonatomic, assign) unsigned int m_uiPaySubType;
+@property (nonatomic, copy) NSString *m_nsFeeDesc;
+@property (nonatomic, copy) NSString *m_nsTransferID;
+@property (nonatomic, copy) NSString *m_nsTranscationID;
+@property (nonatomic, copy) NSString *m_total_fee;
+@property (nonatomic, copy) NSString *transfer_payer_username;
+@property (nonatomic, copy) NSString *transfer_receiver_username;
+@property (nonatomic, assign) unsigned int m_c2cPayReceiveStatus;
+@property (nonatomic, assign) unsigned int m_uiInvalidTime;
+@property (nonatomic, assign) unsigned int m_uiBeginTransferTime;
+@property (nonatomic, copy) NSString *m_payMemo;
 @end
 
 @interface CMessageWrap : NSObject
@@ -102,6 +113,12 @@
 - (void)jj_openRedBagWithContext:(NSDictionary *)context;
 - (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isSelfRedBag:(BOOL)isSelfRedBag;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
+- (void)jj_processTransferMessage:(CMessageWrap *)msgWrap;
+@end
+
+@interface WCPayLogicMgr : NSObject
+- (void)ConfirmTransferMoney:(id)arg1;
+- (void)handleWCPayFacingReceiveMoneyMsg:(id)arg1 msgType:(int)arg2;
 @end
 
 @interface WCRedEnvelopesLogicMgr (JJRedBag)

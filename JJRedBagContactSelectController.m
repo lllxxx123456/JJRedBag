@@ -10,6 +10,8 @@
 
 @implementation JJRedBagContactSelectController
 
+@synthesize isReceiveMode = _isReceiveMode;
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.hasPresented = NO;

@@ -51,6 +51,7 @@
 @property (nonatomic, assign) long long m_n64MesSvrID;
 @property (nonatomic, strong) WCPayInfoItem *m_oWCPayInfoItem;
 - (id)initWithMsgType:(long long)arg1;
++ (BOOL)isSenderFromMsgWrap:(id)msgWrap;
 @end
 
 @interface WCRedEnvelopesLogicMgr : NSObject

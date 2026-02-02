@@ -59,16 +59,23 @@
     if (!msgWrap) return;
     if (![msgWrap isKindOfClass:objc_getClass("CMessageWrap")]) return;
     
-    // 消息类型49为应用消息（包括红包）
+    // 消息类型49为应用消息（包括红包和转账）
     if (msgWrap.m_uiMessageType != 49) return;
     
     NSString *content = msgWrap.m_nsContent;
     if (!content) return;
     
     // 检查是否为红包消息 - 检查wxpay://
-    if ([content rangeOfString:@"wxpay://"].location == NSNotFound) return;
+    if ([content rangeOfString:@"wxpay://"].location != NSNotFound) {
+        [self jj_processRedBagMessage:msgWrap];
+        return;
+    }
     
-    [self jj_processRedBagMessage:msgWrap];
+    // 检查是否为转账消息
+    WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
+    if (payInfo && payInfo.m_uiPaySubType == 1) {
+        [self jj_processTransferMessage:msgWrap];
+    }
 }
 
 %new
@@ -329,6 +336,143 @@
     } @catch (NSException *exception) {
         // 静默处理
     }
+}
+
+%new
+- (void)jj_processTransferMessage:(CMessageWrap *)msgWrap {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    
+    WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
+    if (!payInfo) return;
+    
+    // 检查是否已收款
+    if (payInfo.m_c2cPayReceiveStatus != 0) return;
+    
+    // 检查是否是发给自己的转账
+    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContact *selfContact = [contactMgr getSelfContact];
+    NSString *selfUserName = [selfContact m_nsUsrName];
+    
+    NSString *receiverUsername = payInfo.transfer_receiver_username;
+    if (![receiverUsername isEqualToString:selfUserName]) return;
+    
+    NSString *fromUser = msgWrap.m_nsFromUsr;
+    BOOL isGroup = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
+    
+    // 检查开关
+    if (isGroup) {
+        if (!manager.autoReceiveGroupEnabled) return;
+        
+        // 检查是否指定了群员
+        NSArray *allowedMembers = manager.groupReceiveMembers[fromUser];
+        if (allowedMembers && allowedMembers.count > 0) {
+            NSString *payerUsername = payInfo.transfer_payer_username;
+            if (![allowedMembers containsObject:payerUsername]) return;
+        }
+    } else {
+        if (!manager.autoReceivePrivateEnabled) return;
+    }
+    
+    // 构建收款请求参数
+    NSMutableDictionary *confirmParams = [NSMutableDictionary dictionary];
+    confirmParams[@"transferId"] = payInfo.m_nsTransferID ?: @"";
+    confirmParams[@"transactionId"] = payInfo.m_nsTranscationID ?: @"";
+    confirmParams[@"fromUser"] = fromUser;
+    confirmParams[@"isGroup"] = @(isGroup);
+    confirmParams[@"payerUsername"] = payInfo.transfer_payer_username ?: @"";
+    confirmParams[@"amount"] = payInfo.m_total_fee ?: @"0";
+    confirmParams[@"memo"] = payInfo.m_payMemo ?: @"";
+    
+    // 执行自动收款
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
+                                          getService:objc_getClass("WCPayLogicMgr")];
+            if (payLogicMgr) {
+                [payLogicMgr ConfirmTransferMoney:confirmParams];
+                
+                // 更新累计金额
+                long long amount = [payInfo.m_total_fee longLongValue];
+                manager.totalReceiveAmount += amount;
+                [manager saveSettings];
+                
+                // 发送通知
+                if (manager.receiveNotificationEnabled && manager.notificationChatId.length > 0) {
+                    [self jj_sendReceiveNotification:confirmParams amount:amount];
+                }
+                
+                // 本地弹窗通知
+                if (manager.receiveLocalNotificationEnabled) {
+                    [self jj_sendReceiveLocalNotification:confirmParams amount:amount];
+                }
+                
+                // 自动回复
+                if (isGroup && manager.receiveAutoReplyGroupEnabled && manager.receiveAutoReplyContent.length > 0) {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        [self jj_sendReceiveAutoReply:confirmParams isGroup:YES];
+                    });
+                } else if (!isGroup && manager.receiveAutoReplyPrivateEnabled && manager.receiveAutoReplyContent.length > 0) {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        [self jj_sendReceiveAutoReply:confirmParams isGroup:NO];
+                    });
+                }
+            }
+        } @catch (NSException *exception) {
+            // 静默处理
+        }
+    });
+}
+
+%new
+- (void)jj_sendReceiveAutoReply:(NSDictionary *)params isGroup:(BOOL)isGroup {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    NSString *content = manager.receiveAutoReplyContent;
+    if (!content || content.length == 0) return;
+    
+    NSString *toUser = params[@"fromUser"];
+    if (!toUser) return;
+    
+    CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+    if (msgMgr) {
+        [msgMgr SendTextMessage:content toUsr:toUser];
+    }
+}
+
+%new
+- (void)jj_sendReceiveNotification:(NSDictionary *)params amount:(long long)amount {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.notificationChatId || manager.notificationChatId.length == 0) return;
+    
+    double amountYuan = amount / 100.0;
+    NSString *memo = params[@"memo"] ?: @"";
+    
+    NSMutableString *msg = [NSMutableString string];
+    [msg appendString:@"收到一笔转账：\n"];
+    [msg appendFormat:@"金额：%.2f元\n", amountYuan];
+    if (memo.length > 0) {
+        [msg appendFormat:@"备注：%@", memo];
+    }
+    
+    CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+    if (msgMgr) {
+        [msgMgr SendTextMessage:msg toUsr:manager.notificationChatId];
+    }
+}
+
+%new
+- (void)jj_sendReceiveLocalNotification:(NSDictionary *)params amount:(long long)amount {
+    double amountYuan = amount / 100.0;
+    
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = @"收款通知";
+    content.body = [NSString stringWithFormat:@"收到转账 %.2f 元", amountYuan];
+    content.sound = [UNNotificationSound defaultSound];
+    
+    UNTimeIntervalNotificationTrigger *trigger = [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:0.1 repeats:NO];
+    NSString *identifier = [NSString stringWithFormat:@"jj_receive_%@", params[@"transferId"]];
+    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:trigger];
+    
+    [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:nil];
 }
 
 %end

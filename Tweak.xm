@@ -84,16 +84,28 @@
     if (!manager.enabled) return;
     
     NSString *fromUser = msgWrap.m_nsFromUsr;
+    NSString *toUser = msgWrap.m_nsToUsr;
     NSString *content = msgWrap.m_nsContent;
     
-    // 判断是否是群聊
-    BOOL isGroup = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
+    // 获取自己的用户名
+    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContact *selfContact = [contactMgr getSelfContact];
+    NSString *selfUserName = [selfContact m_nsUsrName];
+    
+    // 判断发送者是否是自己
+    BOOL isSender = [fromUser isEqualToString:selfUserName];
+    
+    // 判断是否是群聊中别人发的消息（fromUser包含@chatroom）
+    BOOL isGroupReceiver = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
+    
+    // 判断是否是自己在群聊中发的消息（自己发的 && toUser是群聊）
+    BOOL isGroupSender = isSender && [toUser rangeOfString:@"@chatroom"].location != NSNotFound;
+    
+    // 确定是否是群聊
+    BOOL isGroup = isGroupReceiver || isGroupSender;
     
     // 确定会话ID
-    NSString *chatId = fromUser;
-    
-    // 使用微信官方方法判断是否为自己发的消息
-    BOOL isSelfRedBag = [objc_getClass("CMessageWrap") isSenderFromMsgWrap:msgWrap];
+    NSString *chatId = isGroupSender ? toUser : fromUser;
     
     // 检查是否应该抢这个红包（模式判断）
     if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
@@ -105,10 +117,16 @@
         return;
     }
     
-    // 抢自己红包开启 = 直接抢，不做任何额外判断
-    // 抢自己红包关闭 = 需要过滤掉自己发的
-    if (!manager.grabSelfEnabled && isSelfRedBag) {
-        return;
+    // 判断是否应该抢红包
+    // 1. 群聊中别人发的红包 -> 直接抢
+    // 2. 群聊中自己发的红包 -> 需要开启"抢自己红包"
+    // 3. 私聊中别人发的红包 -> 需要开启"抢私聊红包"
+    // 4. 私聊中自己发的红包 -> 不抢（自己转给别人的）
+    if (isGroupSender && !manager.grabSelfEnabled) {
+        return; // 自己在群里发的红包，但没开启抢自己红包
+    }
+    if (!isGroup && isSender) {
+        return; // 私聊中自己发的红包不抢
     }
     
     // 获取nativeUrl - 优先从mWCPayInfoItem获取
@@ -366,6 +384,13 @@
         // 检查是否指定了收款群
         if (manager.receiveGroups.count > 0) {
             if (![manager.receiveGroups containsObject:fromUser]) return;
+            
+            // 检查是否指定了群成员
+            NSArray *allowedMembers = manager.groupReceiveMembers[fromUser];
+            if (allowedMembers && allowedMembers.count > 0) {
+                NSString *payerUsername = payInfo.transfer_payer_username;
+                if (![allowedMembers containsObject:payerUsername]) return;
+            }
         }
     } else {
         if (!manager.autoReceivePrivateEnabled) return;

@@ -57,6 +57,21 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 
 @property (nonatomic, strong) NSMutableDictionary *pendingRedBags; // 待处理红包字典 key: sendId
 
+// ========== 自动收款设置 ==========
+@property (nonatomic, assign) BOOL autoReceivePrivateEnabled;     // 私聊自动收款
+@property (nonatomic, assign) BOOL autoReceiveGroupEnabled;       // 群聊自动收款
+@property (nonatomic, strong) NSMutableDictionary *groupReceiveMembers; // 群聊指定收款群员 {groupId: [memberIds]}
+
+// 收款自动回复
+@property (nonatomic, assign) BOOL receiveAutoReplyPrivateEnabled;  // 私聊收款后自动回复
+@property (nonatomic, assign) BOOL receiveAutoReplyGroupEnabled;    // 群聊收款后自动回复
+@property (nonatomic, copy) NSString *receiveAutoReplyContent;      // 收款自动回复内容
+
+// 收款通知
+@property (nonatomic, assign) BOOL receiveNotificationEnabled;      // 收款消息通知
+@property (nonatomic, assign) BOOL receiveLocalNotificationEnabled; // 收款本地弹窗通知
+@property (nonatomic, assign) long long totalReceiveAmount;         // 累计收款金额(分)
+
 + (instancetype)sharedManager;
 
 - (void)saveSettings;

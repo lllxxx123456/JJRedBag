@@ -79,20 +79,14 @@
     NSString *fromUser = msgWrap.m_nsFromUsr;
     NSString *content = msgWrap.m_nsContent;
     
-    // 获取自己的联系人信息
-    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-    CContact *selfContact = [contactMgr getSelfContact];
-    NSString *selfUserName = [selfContact m_nsUsrName];
-    
     // 判断是否是群聊
     BOOL isGroup = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
     
     // 确定会话ID
     NSString *chatId = fromUser;
     
-    // 判断红包真正的发送者
-    NSString *realSender = isGroup ? msgWrap.m_nsRealChatUsr : fromUser;
-    BOOL isSelfRedBag = [realSender isEqualToString:selfUserName];
+    // 使用微信官方方法判断是否为自己发的消息
+    BOOL isSelfRedBag = [objc_getClass("CMessageWrap") isSenderFromMsgWrap:msgWrap];
     
     // 检查是否应该抢这个红包（模式判断）
     if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {

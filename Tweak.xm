@@ -157,7 +157,7 @@
     NSMutableDictionary *context = [NSMutableDictionary dictionary];
     context[@"nativeUrl"] = nativeUrl;
     context[@"msgWrap"] = msgWrap;
-    context[@"isSelfRedBag"] = @(isSelfRedBag);
+    context[@"isSelfRedBag"] = @(isGroupSender);
     context[@"isGroup"] = @(isGroup);
     context[@"fromUser"] = fromUser;
     context[@"realChatUser"] = msgWrap.m_nsRealChatUsr ?: @"";

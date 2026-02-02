@@ -37,6 +37,10 @@
 }
 
 - (void)setupTitle {
+    if (self.isReceiveMode) {
+        self.title = @"选择收款群";
+        return;
+    }
     switch (self.mode) {
         case JJGrabModeExclude: self.title = @"选择不抢群"; break;
         case JJGrabModeOnly: self.title = @"选择只抢群"; break;
@@ -84,6 +88,9 @@
 
 - (NSArray *)getCurrentList {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (self.isReceiveMode) {
+        return manager.receiveGroups;
+    }
     switch (self.mode) {
         case JJGrabModeExclude: return manager.excludeGroups;
         case JJGrabModeOnly: return manager.onlyGroups;
@@ -108,11 +115,15 @@
     NSArray *selectedUserNames = [self.selectView.m_dicMultiSelect allKeys];
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    switch (self.mode) {
-        case JJGrabModeExclude: manager.excludeGroups = [selectedUserNames mutableCopy]; break;
-        case JJGrabModeOnly: manager.onlyGroups = [selectedUserNames mutableCopy]; break;
-        case JJGrabModeDelay: manager.delayGroups = [selectedUserNames mutableCopy]; break;
-        default: break;
+    if (self.isReceiveMode) {
+        manager.receiveGroups = [selectedUserNames mutableCopy];
+    } else {
+        switch (self.mode) {
+            case JJGrabModeExclude: manager.excludeGroups = [selectedUserNames mutableCopy]; break;
+            case JJGrabModeOnly: manager.onlyGroups = [selectedUserNames mutableCopy]; break;
+            case JJGrabModeDelay: manager.delayGroups = [selectedUserNames mutableCopy]; break;
+            default: break;
+        }
     }
     
     [manager saveSettings];

@@ -1084,7 +1084,7 @@
 
 - (void)showReceiveNotificationContactSelect {
     JJRedBagContactSelectController *vc = [[JJRedBagContactSelectController alloc] init];
-    vc.isReceiveMode = YES;
+    [vc setValue:@YES forKey:@"isReceiveMode"];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

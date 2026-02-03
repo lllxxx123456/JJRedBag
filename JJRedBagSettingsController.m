@@ -380,8 +380,7 @@
             cell.textLabel.text = @"    ⤷ 保活模式";
             cell.textLabel.font = [UIFont systemFontOfSize:14];
             NSString *modeName = @"省电模式";
-            if (manager.backgroundMode == JJBackgroundModeLocation) modeName = @"稳定模式";
-            else if (manager.backgroundMode == JJBackgroundModeAudio) modeName = @"强力模式";
+            if (manager.backgroundMode == JJBackgroundModeAudio) modeName = @"强力模式";
             cell.detailTextLabel.text = modeName;
             return;
         }
@@ -899,13 +898,6 @@
         [self showBackgroundModeHint:JJBackgroundModeTimer];
     }]];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"稳定模式（位置服务）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        manager.backgroundMode = JJBackgroundModeLocation;
-        [manager saveSettings];
-        [self.tableView reloadData];
-        [self showBackgroundModeHint:JJBackgroundModeLocation];
-    }]];
-    
     [alert addAction:[UIAlertAction actionWithTitle:@"强力模式（无声音频）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         manager.backgroundMode = JJBackgroundModeAudio;
         [manager saveSettings];
@@ -931,10 +923,6 @@
         case JJBackgroundModeTimer:
             title = @"省电模式";
             message = @"通过定时刷新后台任务保持活跃。\n\n优点：耗电最少\n缺点：系统资源紧张时可能被终止，保活效果一般\n\n适合：对耗电敏感，不要求100%抢到";
-            break;
-        case JJBackgroundModeLocation:
-            title = @"稳定模式";
-            message = @"通过低精度位置服务保持后台运行。\n\n优点：稳定性好，耗电适中\n缺点：需要位置权限，状态栏会显示定位图标\n\n适合：需要较稳定的后台抢红包";
             break;
         case JJBackgroundModeAudio:
             title = @"强力模式";

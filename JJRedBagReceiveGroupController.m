@@ -17,8 +17,6 @@
     
     UIBarButtonItem *addBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addGroup)];
     self.navigationItem.rightBarButtonItem = addBtn;
-    
-    [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"Cell"];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -49,14 +47,25 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:indexPath];
+    static NSString *cellId = @"GroupCell";
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cellId];
+    }
+    
+    // 重置cell状态
+    cell.detailTextLabel.text = nil;
+    cell.detailTextLabel.numberOfLines = 2;
+    cell.accessoryType = UITableViewCellAccessoryNone;
     
     if (self.groups.count == 0) {
         cell.textLabel.text = @"未设置收款群（接收全部群转账）";
         cell.textLabel.textColor = [UIColor grayColor];
-        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
         return cell;
     }
+    
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     
     NSString *groupId = self.groups[indexPath.row];
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
@@ -70,10 +79,26 @@
     }
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     
+    // 显示已选成员详情
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     NSArray *members = manager.groupReceiveMembers[groupId];
     if (members && members.count > 0) {
-        cell.detailTextLabel.text = [NSString stringWithFormat:@"已选%lu人", (unsigned long)members.count];
+        // 获取成员名称列表
+        NSMutableArray *memberNames = [NSMutableArray array];
+        for (NSString *memberId in members) {
+            CContact *memberContact = [contactMgr getContactByName:memberId];
+            NSString *name = memberContact ? [memberContact getContactDisplayName] : memberId;
+            [memberNames addObject:name];
+        }
+        NSString *namesStr = [memberNames componentsJoinedByString:@"、"];
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"已选%lu人：%@", (unsigned long)members.count, namesStr];
+    } else {
+        cell.detailTextLabel.text = @"全部成员";
+    }
+    if (@available(iOS 13.0, *)) {
+        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
+    } else {
+        cell.detailTextLabel.textColor = [UIColor grayColor];
     }
     
     return cell;

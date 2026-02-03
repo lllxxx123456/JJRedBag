@@ -1275,7 +1275,13 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
     UIImage *emoticonImage = jj_currentEmoticonImage;
     if (!emoticonImage) return;
     
-    [self hideMenu];
+    Class MMMenuControllerClass = objc_getClass("MMMenuController");
+    if (MMMenuControllerClass && [MMMenuControllerClass respondsToSelector:@selector(sharedInstance)]) {
+        id menuController = [MMMenuControllerClass sharedInstance];
+        if (menuController && [menuController respondsToSelector:@selector(hideMenu)]) {
+            [menuController hideMenu];
+        }
+    }
     
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;

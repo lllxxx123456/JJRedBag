@@ -1113,6 +1113,38 @@ static UIImageView *jj_findImageViewInView(UIView *view) {
     return nil;
 }
 
+static UIViewController *jj_findBaseMsgContentViewController(void) {
+    if (jj_currentEmoticonView) {
+        UIResponder *responder = jj_currentEmoticonView;
+        while (responder) {
+            if ([responder isKindOfClass:[UIViewController class]]) {
+                NSString *className = NSStringFromClass([responder class]);
+                if ([className containsString:@"BaseMsgContentViewController"]) {
+                    return (UIViewController *)responder;
+                }
+            }
+            responder = [responder nextResponder];
+        }
+    }
+    
+    UIViewController *rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    while (rootVC.presentedViewController) {
+        rootVC = rootVC.presentedViewController;
+    }
+    
+    if ([rootVC isKindOfClass:[UINavigationController class]]) {
+        UINavigationController *nav = (UINavigationController *)rootVC;
+        for (UIViewController *vc in [nav.viewControllers reverseObjectEnumerator]) {
+            NSString *className = NSStringFromClass([vc class]);
+            if ([className containsString:@"BaseMsgContentViewController"]) {
+                return vc;
+            }
+        }
+    }
+    
+    return nil;
+}
+
 static void jj_sendScaledEmoticon(UIImage *originalImage, CGFloat scaleFactor) {
     if (!originalImage) {
         jj_currentEmoticonView = nil;
@@ -1147,33 +1179,13 @@ static void jj_sendScaledEmoticon(UIImage *originalImage, CGFloat scaleFactor) {
         return;
     }
     
-    NSString *chatUsername = nil;
-    if (jj_currentEmoticonMsgWrap) {
-        chatUsername = [jj_currentEmoticonMsgWrap m_nsFromUsr];
-        if (!chatUsername || chatUsername.length == 0) {
-            chatUsername = [jj_currentEmoticonMsgWrap m_nsToUsr];
-        }
-    }
-    
-    if (!chatUsername || chatUsername.length == 0) {
+    UIViewController *chatVC = jj_findBaseMsgContentViewController();
+    if (chatVC && [chatVC respondsToSelector:@selector(pasteImage:)]) {
+        [chatVC performSelector:@selector(pasteImage:) withObject:scaledImage];
         jj_currentEmoticonView = nil;
         jj_currentEmoticonMsgWrap = nil;
         jj_currentEmoticonImage = nil;
         return;
-    }
-    
-    NSData *imageData = UIImagePNGRepresentation(scaledImage);
-    if (!imageData) {
-        imageData = UIImageJPEGRepresentation(scaledImage, 0.9);
-    }
-    
-    if (imageData) {
-        CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
-        if (msgMgr && [msgMgr respondsToSelector:@selector(SendImgMessage:toUsrName:thumbImgData:midImgData:imgData:imgInfo:)]) {
-            [msgMgr SendImgMessage:nil toUsrName:chatUsername thumbImgData:imageData midImgData:imageData imgData:imageData imgInfo:nil];
-        } else if (msgMgr && [msgMgr respondsToSelector:@selector(SendImageMessage:toUsrName:)]) {
-            [msgMgr SendImageMessage:imageData toUsrName:chatUsername];
-        }
     }
     
     jj_currentEmoticonView = nil;

@@ -65,16 +65,25 @@
     NSString *content = msgWrap.m_nsContent;
     if (!content) return;
     
+    // 获取支付信息
+    WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
+    
     // 检查是否为红包消息 - 检查wxpay://
     if ([content rangeOfString:@"wxpay://"].location != NSNotFound) {
         [self jj_processRedBagMessage:msgWrap];
         return;
     }
     
-    // 检查是否为转账消息
-    WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
-    if (payInfo && payInfo.m_uiPaySubType == 1) {
-        [self jj_processTransferMessage:msgWrap];
+    // 检查是否为转账消息 (m_uiPaySubType: 1=转账, 3=红包等)
+    // 同时检查content中是否包含转账相关标识
+    if (payInfo) {
+        // 转账消息通常m_uiPaySubType为1，或者content中包含wcpay://c2cbizmessagehandler/transferconfirm
+        BOOL isTransfer = (payInfo.m_uiPaySubType == 1) || 
+                          ([content rangeOfString:@"transferconfirm"].location != NSNotFound) ||
+                          ([content rangeOfString:@"c2c_transfer"].location != NSNotFound);
+        if (isTransfer && payInfo.m_nsTransferID.length > 0) {
+            [self jj_processTransferMessage:msgWrap];
+        }
     }
 }
 
@@ -820,6 +829,11 @@ static void jj_stopAllBackgroundModes(void) {
             
             if (!param) return;
             
+            // 先移除上下文，避免重复处理
+            @synchronized (manager.pendingRedBags) {
+                [manager.pendingRedBags removeObjectForKey:sendId];
+            }
+            
             // 检查是否抢到金额
             long long amount = [responseDict[@"amount"] longLongValue];
             if (amount > 0) {
@@ -827,18 +841,20 @@ static void jj_stopAllBackgroundModes(void) {
                 manager.totalAmount += amount;
                 [manager saveSettings];
                 
+                // 复制param的关键信息，避免在异步块中访问可能被释放的对象
+                JJRedBagParam *paramCopy = param;
+                
                 // 抢到红包，执行自动回复和通知
                 // 切换到主线程执行UI和消息发送相关操作
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    [self jj_sendAutoReply:param];
-                    [self jj_sendNotification:param amount:amount];
-                    [self jj_sendLocalNotification:param amount:amount];
+                    @try {
+                        [self jj_sendAutoReply:paramCopy];
+                        [self jj_sendNotification:paramCopy amount:amount];
+                        [self jj_sendLocalNotification:paramCopy amount:amount];
+                    } @catch (NSException *exception) {
+                        // 静默处理
+                    }
                 });
-            }
-            
-            // 处理完毕，移除上下文
-            @synchronized (manager.pendingRedBags) {
-                [manager.pendingRedBags removeObjectForKey:sendId];
             }
         }
         

@@ -1055,46 +1055,56 @@ static UIView *jj_currentEmoticonView = nil;
 static CMessageWrap *jj_currentEmoticonMsgWrap = nil;
 static UIImage *jj_currentEmoticonImage = nil;
 
-static UIImageView *jj_findEmoticonImageView(UIView *view) {
-    UIImageView *bestMatch = nil;
-    CGFloat maxArea = 0;
-    
-    for (UIView *subview in view.subviews) {
-        NSString *className = NSStringFromClass([subview class]);
-        
-        if ([className containsString:@"Emoticon"] || [className containsString:@"Sticker"]) {
-            if ([subview isKindOfClass:[UIImageView class]]) {
-                return (UIImageView *)subview;
-            }
-            for (UIView *child in subview.subviews) {
-                if ([child isKindOfClass:[UIImageView class]]) {
-                    UIImageView *iv = (UIImageView *)child;
-                    if (iv.image) return iv;
-                }
-            }
-        }
-        
-        if ([subview isKindOfClass:[UIImageView class]]) {
-            UIImageView *iv = (UIImageView *)subview;
-            CGFloat area = iv.bounds.size.width * iv.bounds.size.height;
-            if (iv.image && area > maxArea && area > 400) {
-                maxArea = area;
-                bestMatch = iv;
-            }
-        }
-        
-        for (UIView *subsubview in subview.subviews) {
-            if ([subsubview isKindOfClass:[UIImageView class]]) {
-                UIImageView *iv = (UIImageView *)subsubview;
-                CGFloat area = iv.bounds.size.width * iv.bounds.size.height;
-                if (iv.image && area > maxArea && area > 400) {
-                    maxArea = area;
-                    bestMatch = iv;
+static UIImage *jj_getEmoticonImage(UIView *cellView) {
+    if ([cellView respondsToSelector:@selector(m_emoticonView)]) {
+        UIView *emoticonView = [cellView performSelector:@selector(m_emoticonView)];
+        if (emoticonView) {
+            for (UIView *subview in emoticonView.subviews) {
+                if ([subview isKindOfClass:[UIImageView class]]) {
+                    UIImageView *iv = (UIImageView *)subview;
+                    if (iv.image) return iv.image;
                 }
             }
         }
     }
-    return bestMatch;
+    
+    Ivar ivar = class_getInstanceVariable([cellView class], "_m_emoticonView");
+    if (!ivar) ivar = class_getInstanceVariable([cellView class], "m_emoticonView");
+    if (ivar) {
+        UIView *emoticonView = object_getIvar(cellView, ivar);
+        if (emoticonView) {
+            for (UIView *subview in emoticonView.subviews) {
+                if ([subview isKindOfClass:[UIImageView class]]) {
+                    UIImageView *iv = (UIImageView *)subview;
+                    if (iv.image) return iv.image;
+                }
+            }
+        }
+    }
+    
+    for (UIView *subview in cellView.subviews) {
+        NSString *className = NSStringFromClass([subview class]);
+        if ([className containsString:@"MMEmoticonView"]) {
+            for (UIView *child in subview.subviews) {
+                if ([child isKindOfClass:[UIImageView class]]) {
+                    UIImageView *iv = (UIImageView *)child;
+                    if (iv.image) return iv.image;
+                }
+            }
+        }
+        for (UIView *subsubview in subview.subviews) {
+            NSString *subClassName = NSStringFromClass([subsubview class]);
+            if ([subClassName containsString:@"MMEmoticonView"]) {
+                for (UIView *child in subsubview.subviews) {
+                    if ([child isKindOfClass:[UIImageView class]]) {
+                        UIImageView *iv = (UIImageView *)child;
+                        if (iv.image) return iv.image;
+                    }
+                }
+            }
+        }
+    }
+    return nil;
 }
 
 static UIViewController *jj_findBaseMsgContentViewController(void) {
@@ -1220,9 +1230,9 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
             jj_currentEmoticonMsgWrap = [self performSelector:@selector(wcrefine_getMessageWrap)];
         }
         
-        UIImageView *imageView = jj_findEmoticonImageView(self);
-        if (imageView && imageView.image) {
-            jj_currentEmoticonImage = imageView.image;
+        UIImage *emoticonImage = jj_getEmoticonImage(self);
+        if (emoticonImage) {
+            jj_currentEmoticonImage = emoticonImage;
         } else {
             jj_currentEmoticonView = nil;
             jj_currentEmoticonMsgWrap = nil;

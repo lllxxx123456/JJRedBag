@@ -1241,7 +1241,10 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
         
         Class MMMenuItemClass = objc_getClass("MMMenuItem");
         if (MMMenuItemClass) {
-            UIImage *scaleIcon = [UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right"];
+            UIImage *scaleIcon = nil;
+            if (@available(iOS 13.0, *)) {
+                scaleIcon = [UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right"];
+            }
             MMMenuItem *scaleItem = nil;
             if (scaleIcon && [MMMenuItemClass instancesRespondToSelector:@selector(initWithTitle:icon:target:action:)]) {
                 scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" icon:scaleIcon target:self action:@selector(jj_showScaleOptions)];

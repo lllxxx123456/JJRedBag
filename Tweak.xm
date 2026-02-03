@@ -1211,12 +1211,15 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
 
 %hook EmoticonMessageCellView
 
-- (void)longPressGestureRecognizerAction:(UILongPressGestureRecognizer *)gesture {
+- (void)onLongTouch {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (manager.emoticonScaleEnabled && gesture.state == UIGestureRecognizerStateBegan) {
+    if (manager.emoticonScaleEnabled) {
         jj_currentEmoticonView = self;
-        if ([self respondsToSelector:@selector(getMessageWrap)]) {
-            jj_currentEmoticonMsgWrap = [self getMessageWrap];
+        
+        if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
+            jj_currentEmoticonMsgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
+        } else if ([self respondsToSelector:@selector(wcrefine_getMessageWrap)]) {
+            jj_currentEmoticonMsgWrap = [self performSelector:@selector(wcrefine_getMessageWrap)];
         }
         
         UIImageView *imageView = jj_findImageViewInView(self);

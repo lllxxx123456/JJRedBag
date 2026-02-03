@@ -1199,7 +1199,7 @@ static void jj_sendScaledImage(UIImage *originalImage, CGFloat scaleFactor, NSSt
         
         // 保存图片到临时目录
         NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
-                              [NSString stringWithFormat:@"jj_emoticon_%u.png", (unsigned int)[[NSDate date] timeIntervalSince1970]]];
+                              [NSString stringWithFormat:@"jj_emoticon_%u.%@", (unsigned int)[[NSDate date] timeIntervalSince1970], fileExt]];
         [imageData writeToFile:tempPath atomically:YES];
         
         // 设置表情数据

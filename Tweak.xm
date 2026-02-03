@@ -4,7 +4,6 @@
 #import "JJRedBagParam.h"
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
-#import <MobileCoreServices/MobileCoreServices.h>
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
@@ -1034,7 +1033,7 @@ static NSData *jj_scaleGIFData(NSData *gifData, CGFloat scaleFactor) {
     NSMutableData *outputData = [NSMutableData data];
     CGImageDestinationRef destination = CGImageDestinationCreateWithData(
         (__bridge CFMutableDataRef)outputData,
-        kUTTypeGIF,
+        CFSTR("com.compuserve.gif"),
         count,
         NULL
     );
@@ -1223,7 +1222,9 @@ static void jj_sendScaledImage(UIImage *originalImage, CGFloat scaleFactor, NSSt
         
     } @catch (NSException *exception) {
         // 发送失败时回退到剪贴板方式
-        [[UIPasteboard generalPasteboard] setImage:scaledImage];
+        if (originalImage) {
+            [[UIPasteboard generalPasteboard] setImage:originalImage];
+        }
         
         dispatch_async(dispatch_get_main_queue(), ^{
             UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;

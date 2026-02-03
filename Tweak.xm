@@ -1093,30 +1093,9 @@ static void jj_stopAllBackgroundModes(void) {
 static UIView *jj_currentEmoticonView = nil;
 static CMessageWrap *jj_currentEmoticonMsgWrap = nil;
 static UIImage *jj_currentEmoticonImage = nil;
-static NSString *jj_currentChatUsername = nil;
 
-%hook EmoticonMessageCellView
-
-- (void)longPressGestureRecognizerAction:(UILongPressGestureRecognizer *)gesture {
-    JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (manager.emoticonScaleEnabled && gesture.state == UIGestureRecognizerStateBegan) {
-        jj_currentEmoticonView = self;
-        if ([self respondsToSelector:@selector(getMessageWrap)]) {
-            jj_currentEmoticonMsgWrap = [self getMessageWrap];
-        }
-        
-        // 获取表情图片
-        UIImageView *imageView = [self jj_findImageView];
-        if (imageView && imageView.image) {
-            jj_currentEmoticonImage = imageView.image;
-        }
-    }
-    %orig;
-}
-
-%new
-- (UIImageView *)jj_findImageView {
-    for (UIView *subview in self.subviews) {
+static UIImageView *jj_findImageViewInView(UIView *view) {
+    for (UIView *subview in view.subviews) {
         if ([subview isKindOfClass:[UIImageView class]]) {
             return (UIImageView *)subview;
         }
@@ -1132,6 +1111,120 @@ static NSString *jj_currentChatUsername = nil;
         }
     }
     return nil;
+}
+
+static void jj_sendScaledEmoticon(UIImage *originalImage, CGFloat scaleFactor) {
+    if (!originalImage) {
+        jj_currentEmoticonView = nil;
+        jj_currentEmoticonMsgWrap = nil;
+        jj_currentEmoticonImage = nil;
+        return;
+    }
+    
+    CGSize originalSize = originalImage.size;
+    CGSize newSize = CGSizeMake(originalSize.width * scaleFactor, originalSize.height * scaleFactor);
+    
+    CGFloat maxSize = 300.0;
+    CGFloat minSize = 20.0;
+    
+    if (newSize.width > maxSize || newSize.height > maxSize) {
+        CGFloat ratio = MIN(maxSize / newSize.width, maxSize / newSize.height);
+        newSize.width *= ratio;
+        newSize.height *= ratio;
+    }
+    if (newSize.width < minSize) newSize.width = minSize;
+    if (newSize.height < minSize) newSize.height = minSize;
+    
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 0.0);
+    [originalImage drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    
+    if (!scaledImage) {
+        jj_currentEmoticonView = nil;
+        jj_currentEmoticonMsgWrap = nil;
+        jj_currentEmoticonImage = nil;
+        return;
+    }
+    
+    NSString *chatUsername = nil;
+    if (jj_currentEmoticonMsgWrap) {
+        chatUsername = [jj_currentEmoticonMsgWrap m_nsFromUsr];
+        if (!chatUsername || chatUsername.length == 0) {
+            chatUsername = [jj_currentEmoticonMsgWrap m_nsToUsr];
+        }
+    }
+    
+    if (!chatUsername || chatUsername.length == 0) {
+        jj_currentEmoticonView = nil;
+        jj_currentEmoticonMsgWrap = nil;
+        jj_currentEmoticonImage = nil;
+        return;
+    }
+    
+    NSData *imageData = UIImagePNGRepresentation(scaledImage);
+    if (!imageData) {
+        imageData = UIImageJPEGRepresentation(scaledImage, 0.9);
+    }
+    
+    if (imageData) {
+        CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+        if (msgMgr && [msgMgr respondsToSelector:@selector(SendImgMessage:toUsrName:thumbImgData:midImgData:imgData:imgInfo:)]) {
+            [msgMgr SendImgMessage:nil toUsrName:chatUsername thumbImgData:imageData midImgData:imageData imgData:imageData imgInfo:nil];
+        } else if (msgMgr && [msgMgr respondsToSelector:@selector(SendImageMessage:toUsrName:)]) {
+            [msgMgr SendImageMessage:imageData toUsrName:chatUsername];
+        }
+    }
+    
+    jj_currentEmoticonView = nil;
+    jj_currentEmoticonMsgWrap = nil;
+    jj_currentEmoticonImage = nil;
+}
+
+static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *topVC) {
+    UIAlertController *inputAlert = [UIAlertController alertControllerWithTitle:@"自定义缩放比例" 
+                                                                        message:@"请输入缩放倍数（0.1-3.0）\n例如：1.2 表示放大到1.2倍\n0.5 表示缩小到一半" 
+                                                                 preferredStyle:UIAlertControllerStyleAlert];
+    
+    [inputAlert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"例如：1.5";
+        textField.keyboardType = UIKeyboardTypeDecimalPad;
+        textField.text = @"1.0";
+    }];
+    
+    [inputAlert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *input = inputAlert.textFields.firstObject.text;
+        CGFloat scale = [input floatValue];
+        if (scale < 0.1) scale = 0.1;
+        if (scale > 3.0) scale = 3.0;
+        jj_sendScaledEmoticon(emoticonImage, scale);
+    }]];
+    
+    [inputAlert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        jj_currentEmoticonView = nil;
+        jj_currentEmoticonMsgWrap = nil;
+        jj_currentEmoticonImage = nil;
+    }]];
+    
+    [topVC presentViewController:inputAlert animated:YES completion:nil];
+}
+
+%hook EmoticonMessageCellView
+
+- (void)longPressGestureRecognizerAction:(UILongPressGestureRecognizer *)gesture {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (manager.emoticonScaleEnabled && gesture.state == UIGestureRecognizerStateBegan) {
+        jj_currentEmoticonView = self;
+        if ([self respondsToSelector:@selector(getMessageWrap)]) {
+            jj_currentEmoticonMsgWrap = [self getMessageWrap];
+        }
+        
+        UIImageView *imageView = jj_findImageViewInView(self);
+        if (imageView && imageView.image) {
+            jj_currentEmoticonImage = imageView.image;
+        }
+    }
+    %orig;
 }
 
 %end
@@ -1157,7 +1250,6 @@ static NSString *jj_currentChatUsername = nil;
 
 - (void)hideMenu {
     %orig;
-    // 延迟清理，确保弹窗能正常使用数据
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (jj_currentEmoticonView == nil) {
             jj_currentEmoticonMsgWrap = nil;
@@ -1168,14 +1260,11 @@ static NSString *jj_currentChatUsername = nil;
 
 %new
 - (void)jj_showScaleOptions {
-    // 先隐藏菜单
     [self hideMenu];
     
-    // 保存当前图片引用
     UIImage *emoticonImage = jj_currentEmoticonImage;
     if (!emoticonImage) return;
     
-    // 获取顶层ViewController
     UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
     while (topVC.presentedViewController) {
         topVC = topVC.presentedViewController;
@@ -1188,19 +1277,16 @@ static NSString *jj_currentChatUsername = nil;
                                                                    message:sizeInfo 
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     
-    // 放大选项
     [alert addAction:[UIAlertAction actionWithTitle:@"放大 (1.5倍)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self jj_sendScaledEmoticon:emoticonImage scale:1.5];
+        jj_sendScaledEmoticon(emoticonImage, 1.5);
     }]];
     
-    // 缩小选项
     [alert addAction:[UIAlertAction actionWithTitle:@"缩小 (0.7倍)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self jj_sendScaledEmoticon:emoticonImage scale:0.7];
+        jj_sendScaledEmoticon(emoticonImage, 0.7);
     }]];
     
-    // 自定义选项
     [alert addAction:[UIAlertAction actionWithTitle:@"自定义比例" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self jj_showCustomScaleInput:emoticonImage topVC:topVC];
+        jj_showCustomScaleInput(emoticonImage, topVC);
     }]];
     
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
@@ -1215,110 +1301,6 @@ static NSString *jj_currentChatUsername = nil;
     }
     
     [topVC presentViewController:alert animated:YES completion:nil];
-}
-
-%new
-- (void)jj_showCustomScaleInput:(UIImage *)emoticonImage topVC:(UIViewController *)topVC {
-    UIAlertController *inputAlert = [UIAlertController alertControllerWithTitle:@"自定义缩放比例" 
-                                                                        message:@"请输入缩放倍数（0.1-3.0）\n例如：1.2 表示放大到1.2倍\n0.5 表示缩小到一半" 
-                                                                 preferredStyle:UIAlertControllerStyleAlert];
-    
-    [inputAlert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"例如：1.5";
-        textField.keyboardType = UIKeyboardTypeDecimalPad;
-        textField.text = @"1.0";
-    }];
-    
-    [inputAlert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        NSString *input = inputAlert.textFields.firstObject.text;
-        CGFloat scale = [input floatValue];
-        if (scale < 0.1) scale = 0.1;
-        if (scale > 3.0) scale = 3.0;
-        [self jj_sendScaledEmoticon:emoticonImage scale:scale];
-    }]];
-    
-    [inputAlert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-    }]];
-    
-    [topVC presentViewController:inputAlert animated:YES completion:nil];
-}
-
-%new
-- (void)jj_sendScaledEmoticon:(UIImage *)originalImage scale:(CGFloat)scaleFactor {
-    if (!originalImage) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-        return;
-    }
-    
-    // 计算新尺寸
-    CGSize originalSize = originalImage.size;
-    CGSize newSize = CGSizeMake(originalSize.width * scaleFactor, originalSize.height * scaleFactor);
-    
-    // 限制尺寸范围
-    CGFloat maxSize = 300.0;
-    CGFloat minSize = 20.0;
-    
-    if (newSize.width > maxSize || newSize.height > maxSize) {
-        CGFloat ratio = MIN(maxSize / newSize.width, maxSize / newSize.height);
-        newSize.width *= ratio;
-        newSize.height *= ratio;
-    }
-    if (newSize.width < minSize) newSize.width = minSize;
-    if (newSize.height < minSize) newSize.height = minSize;
-    
-    // 缩放图片
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, 0.0);
-    [originalImage drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
-    UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    
-    if (!scaledImage) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-        return;
-    }
-    
-    // 获取当前聊天会话ID
-    NSString *chatUsername = nil;
-    if (jj_currentEmoticonMsgWrap) {
-        chatUsername = [jj_currentEmoticonMsgWrap m_nsFromUsr];
-        if (!chatUsername || chatUsername.length == 0) {
-            chatUsername = [jj_currentEmoticonMsgWrap m_nsToUsr];
-        }
-    }
-    
-    if (!chatUsername || chatUsername.length == 0) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-        return;
-    }
-    
-    // 发送表情
-    NSData *imageData = UIImagePNGRepresentation(scaledImage);
-    if (!imageData) {
-        imageData = UIImageJPEGRepresentation(scaledImage, 0.9);
-    }
-    
-    if (imageData) {
-        CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
-        if (msgMgr && [msgMgr respondsToSelector:@selector(SendImgMessage:toUsrName:thumbImgData:midImgData:imgData:imgInfo:)]) {
-            [msgMgr SendImgMessage:nil toUsrName:chatUsername thumbImgData:imageData midImgData:imageData imgData:imageData imgInfo:nil];
-        } else if (msgMgr && [msgMgr respondsToSelector:@selector(SendImageMessage:toUsrName:)]) {
-            [msgMgr SendImageMessage:imageData toUsrName:chatUsername];
-        }
-    }
-    
-    // 清理
-    jj_currentEmoticonView = nil;
-    jj_currentEmoticonMsgWrap = nil;
-    jj_currentEmoticonImage = nil;
 }
 
 %end

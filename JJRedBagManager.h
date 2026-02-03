@@ -15,8 +15,7 @@ typedef NS_ENUM(NSInteger, JJDelayOtherMode) {
 
 typedef NS_ENUM(NSInteger, JJBackgroundMode) {
     JJBackgroundModeTimer = 0,     // 定时刷新（省电模式）
-    JJBackgroundModeLocation = 1,  // 位置服务（稳定模式）
-    JJBackgroundModeAudio = 2      // 无声音频（强力模式）
+    JJBackgroundModeAudio = 1      // 无声音频（强力模式）
 };
 
 @interface JJRedBagManager : NSObject

@@ -62,6 +62,9 @@
         _receiveNotificationChatId = @"";
         _receiveNotificationChatName = @"";
         _totalReceiveAmount = 0;
+        
+        // 表情包缩放默认设置
+        _emoticonScaleEnabled = NO;
     }
     return self;
 }
@@ -112,6 +115,9 @@
     settings[@"receiveNotificationChatId"] = self.receiveNotificationChatId ?: @"";
     settings[@"receiveNotificationChatName"] = self.receiveNotificationChatName ?: @"";
     settings[@"totalReceiveAmount"] = @(self.totalReceiveAmount);
+    
+    // 表情包缩放
+    settings[@"emoticonScaleEnabled"] = @(self.emoticonScaleEnabled);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -167,6 +173,9 @@
         self.receiveNotificationChatId = settings[@"receiveNotificationChatId"] ?: @"";
         self.receiveNotificationChatName = settings[@"receiveNotificationChatName"] ?: @"";
         self.totalReceiveAmount = [settings[@"totalReceiveAmount"] longLongValue];
+        
+        // 表情包缩放
+        self.emoticonScaleEnabled = [settings[@"emoticonScaleEnabled"] boolValue];
     }
 }
 

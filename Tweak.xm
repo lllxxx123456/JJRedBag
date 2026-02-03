@@ -3,6 +3,8 @@
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagParam.h"
 #import <UserNotifications/UserNotifications.h>
+#import <ImageIO/ImageIO.h>
+#import <MobileCoreServices/MobileCoreServices.h>
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
@@ -1051,170 +1053,254 @@ static void jj_stopAllBackgroundModes(void) {
 
 #pragma mark - 表情包放大/缩小功能
 
-static UIView *jj_currentEmoticonView = nil;
-static CMessageWrap *jj_currentEmoticonMsgWrap = nil;
 static UIImage *jj_currentEmoticonImage = nil;
+static NSString *jj_currentChatUserName = nil;
+static NSData *jj_currentEmoticonData = nil;
+static BOOL jj_currentIsGIF = NO;
 
-static UIImage *jj_getEmoticonImage(UIView *cellView) {
-    if ([cellView respondsToSelector:@selector(m_emoticonView)]) {
-        UIView *emoticonView = [cellView performSelector:@selector(m_emoticonView)];
-        if (emoticonView) {
-            for (UIView *subview in emoticonView.subviews) {
-                if ([subview isKindOfClass:[UIImageView class]]) {
-                    UIImageView *iv = (UIImageView *)subview;
-                    if (iv.image) return iv.image;
-                }
-            }
+static UIImage *jj_getEmoticonImageFromView(UIView *view) {
+    if (!view) return nil;
+    
+    if ([view isKindOfClass:[UIImageView class]]) {
+        UIImageView *iv = (UIImageView *)view;
+        if (iv.image && iv.image.size.width > 10) {
+            return iv.image;
         }
     }
     
-    Ivar ivar = class_getInstanceVariable([cellView class], "_m_emoticonView");
-    if (!ivar) ivar = class_getInstanceVariable([cellView class], "m_emoticonView");
-    if (ivar) {
-        UIView *emoticonView = object_getIvar(cellView, ivar);
-        if (emoticonView) {
-            for (UIView *subview in emoticonView.subviews) {
-                if ([subview isKindOfClass:[UIImageView class]]) {
-                    UIImageView *iv = (UIImageView *)subview;
-                    if (iv.image) return iv.image;
-                }
-            }
-        }
-    }
-    
-    for (UIView *subview in cellView.subviews) {
-        NSString *className = NSStringFromClass([subview class]);
-        if ([className containsString:@"MMEmoticonView"]) {
-            for (UIView *child in subview.subviews) {
-                if ([child isKindOfClass:[UIImageView class]]) {
-                    UIImageView *iv = (UIImageView *)child;
-                    if (iv.image) return iv.image;
-                }
-            }
-        }
-        for (UIView *subsubview in subview.subviews) {
-            NSString *subClassName = NSStringFromClass([subsubview class]);
-            if ([subClassName containsString:@"MMEmoticonView"]) {
-                for (UIView *child in subsubview.subviews) {
-                    if ([child isKindOfClass:[UIImageView class]]) {
-                        UIImageView *iv = (UIImageView *)child;
-                        if (iv.image) return iv.image;
-                    }
-                }
-            }
-        }
+    for (UIView *subview in view.subviews) {
+        UIImage *img = jj_getEmoticonImageFromView(subview);
+        if (img) return img;
     }
     return nil;
 }
 
-static UIViewController *jj_findBaseMsgContentViewController(void) {
-    if (jj_currentEmoticonView) {
-        UIResponder *responder = jj_currentEmoticonView;
-        while (responder) {
-            if ([responder isKindOfClass:[UIViewController class]]) {
-                NSString *className = NSStringFromClass([responder class]);
-                if ([className containsString:@"BaseMsgContentViewController"]) {
-                    return (UIViewController *)responder;
+// GIF缩放函数
+static NSData *jj_scaleGIFData(NSData *gifData, CGFloat scaleFactor) {
+    if (!gifData) return nil;
+    
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)gifData, NULL);
+    if (!source) return nil;
+    
+    size_t count = CGImageSourceGetCount(source);
+    if (count == 0) {
+        CFRelease(source);
+        return nil;
+    }
+    
+    // 创建GIF输出
+    NSMutableData *outputData = [NSMutableData data];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithData(
+        (__bridge CFMutableDataRef)outputData,
+        kUTTypeGIF,
+        count,
+        NULL
+    );
+    
+    if (!destination) {
+        CFRelease(source);
+        return nil;
+    }
+    
+    // 复制GIF属性
+    NSDictionary *gifProperties = (__bridge NSDictionary *)CGImageSourceCopyProperties(source, NULL);
+    if (gifProperties) {
+        CGImageDestinationSetProperties(destination, (__bridge CFDictionaryRef)gifProperties);
+    }
+    
+    // 处理每一帧
+    for (size_t i = 0; i < count; i++) {
+        CGImageRef frame = CGImageSourceCreateImageAtIndex(source, i, NULL);
+        if (!frame) continue;
+        
+        // 计算新尺寸
+        size_t origWidth = CGImageGetWidth(frame);
+        size_t origHeight = CGImageGetHeight(frame);
+        size_t newWidth = (size_t)(origWidth * scaleFactor);
+        size_t newHeight = (size_t)(origHeight * scaleFactor);
+        
+        // 限制尺寸
+        if (newWidth > 300 || newHeight > 300) {
+            CGFloat ratio = MIN(300.0 / newWidth, 300.0 / newHeight);
+            newWidth = (size_t)(newWidth * ratio);
+            newHeight = (size_t)(newHeight * ratio);
+        }
+        if (newWidth < 20) newWidth = 20;
+        if (newHeight < 20) newHeight = 20;
+        
+        // 缩放帧
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        CGContextRef context = CGBitmapContextCreate(
+            NULL, newWidth, newHeight, 8, 0, colorSpace,
+            kCGImageAlphaPremultipliedLast
+        );
+        CGColorSpaceRelease(colorSpace);
+        
+        if (context) {
+            CGContextSetInterpolationQuality(context, kCGInterpolationHigh);
+            CGContextDrawImage(context, CGRectMake(0, 0, newWidth, newHeight), frame);
+            CGImageRef scaledFrame = CGBitmapContextCreateImage(context);
+            CGContextRelease(context);
+            
+            if (scaledFrame) {
+                // 获取帧属性(延迟等)
+                NSDictionary *frameProps = (__bridge NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, i, NULL);
+                if (frameProps) {
+                    CGImageDestinationAddImage(destination, scaledFrame, (__bridge CFDictionaryRef)frameProps);
+                } else {
+                    CGImageDestinationAddImage(destination, scaledFrame, NULL);
+                }
+                CGImageRelease(scaledFrame);
+            }
+        }
+        CGImageRelease(frame);
+    }
+    
+    BOOL success = CGImageDestinationFinalize(destination);
+    CFRelease(destination);
+    CFRelease(source);
+    
+    return success ? outputData : nil;
+}
+
+static NSString *jj_getCurrentChatUserName(UIView *fromView) {
+    // 从响应链查找聊天控制器获取当前会话
+    UIResponder *responder = fromView;
+    while (responder) {
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            UIViewController *vc = (UIViewController *)responder;
+            // 尝试获取m_contact属性
+            if ([vc respondsToSelector:@selector(m_contact)]) {
+                CContact *contact = [vc performSelector:@selector(m_contact)];
+                if (contact && contact.m_nsUsrName.length > 0) {
+                    return contact.m_nsUsrName;
                 }
             }
-            responder = [responder nextResponder];
-        }
-    }
-    
-    UIViewController *rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-    while (rootVC.presentedViewController) {
-        rootVC = rootVC.presentedViewController;
-    }
-    
-    if ([rootVC isKindOfClass:[UINavigationController class]]) {
-        UINavigationController *nav = (UINavigationController *)rootVC;
-        for (UIViewController *vc in [nav.viewControllers reverseObjectEnumerator]) {
-            NSString *className = NSStringFromClass([vc class]);
-            if ([className containsString:@"BaseMsgContentViewController"]) {
-                return vc;
+            // 尝试获取m_nsUsrName属性
+            if ([vc respondsToSelector:@selector(m_nsUsrName)]) {
+                NSString *userName = [vc performSelector:@selector(m_nsUsrName)];
+                if (userName.length > 0) return userName;
             }
         }
+        responder = [responder nextResponder];
     }
-    
     return nil;
 }
 
-static void jj_sendScaledEmoticon(UIImage *originalImage, CGFloat scaleFactor) {
-    if (!originalImage) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
+static void jj_sendScaledImage(UIImage *originalImage, CGFloat scaleFactor, NSString *toUserName) {
+    if (!toUserName || toUserName.length == 0) {
         jj_currentEmoticonImage = nil;
+        jj_currentChatUserName = nil;
+        jj_currentEmoticonData = nil;
         return;
     }
     
-    CGSize originalSize = originalImage.size;
-    CGSize newSize = CGSizeMake(originalSize.width * scaleFactor, originalSize.height * scaleFactor);
+    NSData *imageData = nil;
+    NSString *fileExt = @"png";
     
-    CGFloat maxSize = 300.0;
-    CGFloat minSize = 20.0;
-    
-    if (newSize.width > maxSize || newSize.height > maxSize) {
-        CGFloat ratio = MIN(maxSize / newSize.width, maxSize / newSize.height);
-        newSize.width *= ratio;
-        newSize.height *= ratio;
-    }
-    if (newSize.width < minSize) newSize.width = minSize;
-    if (newSize.height < minSize) newSize.height = minSize;
-    
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, 0.0);
-    [originalImage drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
-    UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    
-    if (!scaledImage) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-        return;
-    }
-    
-    UIViewController *chatVC = jj_findBaseMsgContentViewController();
-    if (chatVC) {
-        if ([chatVC respondsToSelector:@selector(sendCaptruedImage:)]) {
-            [chatVC performSelector:@selector(sendCaptruedImage:) withObject:scaledImage];
-        } else if ([chatVC respondsToSelector:@selector(sendCaptuedImage:)]) {
-            [chatVC performSelector:@selector(sendCaptuedImage:) withObject:scaledImage];
-        } else if ([chatVC respondsToSelector:@selector(SendImageMessage:)]) {
-            [chatVC performSelector:@selector(SendImageMessage:) withObject:scaledImage];
+    // 判断是否是GIF
+    if (jj_currentIsGIF && jj_currentEmoticonData) {
+        // GIF缩放
+        imageData = jj_scaleGIFData(jj_currentEmoticonData, scaleFactor);
+        fileExt = @"gif";
+    } else if (originalImage) {
+        // 静态图片缩放
+        CGSize originalSize = originalImage.size;
+        CGSize newSize = CGSizeMake(originalSize.width * scaleFactor, originalSize.height * scaleFactor);
+        
+        // 限制尺寸范围
+        if (newSize.width > 300 || newSize.height > 300) {
+            CGFloat ratio = MIN(300.0 / newSize.width, 300.0 / newSize.height);
+            newSize.width *= ratio;
+            newSize.height *= ratio;
+        }
+        if (newSize.width < 20) newSize.width = 20;
+        if (newSize.height < 20) newSize.height = 20;
+        
+        UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
+        [originalImage drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+        UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        
+        if (scaledImage) {
+            imageData = UIImagePNGRepresentation(scaledImage);
         }
     }
     
-    jj_currentEmoticonView = nil;
-    jj_currentEmoticonMsgWrap = nil;
+    if (!imageData) {
+        jj_currentEmoticonImage = nil;
+        jj_currentChatUserName = nil;
+        jj_currentEmoticonData = nil;
+        return;
+    }
+    
+    // 使用 AddEmoticonMsg:MsgWrap: 发送表情
+    @try {
+        // 获取自己的用户名
+        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+        CContact *selfContact = [contactMgr getSelfContact];
+        NSString *selfUserName = [selfContact m_nsUsrName];
+        
+        // 创建消息对象 (表情消息类型为47)
+        CMessageWrap *msgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
+        msgWrap.m_nsFromUsr = selfUserName;
+        msgWrap.m_nsToUsr = toUserName;
+        msgWrap.m_uiStatus = 1;
+        
+        // 设置时间
+        MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
+        if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
+            msgWrap.m_uiCreateTime = [sessionMgr GenSendMsgTime];
+        } else {
+            msgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        }
+        msgWrap.m_uiMesLocalID = msgWrap.m_uiCreateTime;
+        
+        // 保存图片到临时目录
+        NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                              [NSString stringWithFormat:@"jj_emoticon_%u.png", (unsigned int)[[NSDate date] timeIntervalSince1970]]];
+        [imageData writeToFile:tempPath atomically:YES];
+        
+        // 设置表情数据
+        msgWrap.m_nsEmoticonMD5 = [NSString stringWithFormat:@"jj_%u", (unsigned int)[[NSDate date] timeIntervalSince1970]];
+        msgWrap.m_nsContent = tempPath;
+        msgWrap.m_nsThumbImgPath = tempPath;
+        msgWrap.m_nsImgPath = tempPath;
+        msgWrap.m_dtEmoticonData = imageData;
+        
+        // 发送消息
+        CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+        if (msgMgr && [msgMgr respondsToSelector:@selector(AddEmoticonMsg:MsgWrap:)]) {
+            [msgMgr AddEmoticonMsg:toUserName MsgWrap:msgWrap];
+        }
+        
+        // 延迟删除临时文件
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [[NSFileManager defaultManager] removeItemAtPath:tempPath error:nil];
+        });
+        
+    } @catch (NSException *exception) {
+        // 发送失败时回退到剪贴板方式
+        [[UIPasteboard generalPasteboard] setImage:scaledImage];
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+            while (topVC.presentedViewController) {
+                topVC = topVC.presentedViewController;
+            }
+            
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已复制到剪贴板"
+                                                                           message:@"直接发送失败，请手动粘贴发送"
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"好的" style:UIAlertActionStyleDefault handler:nil]];
+            [topVC presentViewController:alert animated:YES completion:nil];
+        });
+    }
+    
     jj_currentEmoticonImage = nil;
-}
-
-static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *topVC) {
-    UIAlertController *inputAlert = [UIAlertController alertControllerWithTitle:@"自定义缩放比例" 
-                                                                        message:@"请输入缩放倍数（0.1-3.0）\n例如：1.2 表示放大到1.2倍\n0.5 表示缩小到一半" 
-                                                                 preferredStyle:UIAlertControllerStyleAlert];
-    
-    [inputAlert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"例如：1.5";
-        textField.keyboardType = UIKeyboardTypeDecimalPad;
-        textField.text = @"1.0";
-    }];
-    
-    [inputAlert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        NSString *input = inputAlert.textFields.firstObject.text;
-        CGFloat scale = [input floatValue];
-        if (scale < 0.1) scale = 0.1;
-        if (scale > 3.0) scale = 3.0;
-        jj_sendScaledEmoticon(emoticonImage, scale);
-    }]];
-    
-    [inputAlert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-    }]];
-    
-    [topVC presentViewController:inputAlert animated:YES completion:nil];
+    jj_currentChatUserName = nil;
+    jj_currentEmoticonData = nil;
+    jj_currentIsGIF = NO;
 }
 
 %hook EmoticonMessageCellView
@@ -1222,20 +1308,46 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
 - (void)onLongTouch {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (manager.emoticonScaleEnabled) {
-        jj_currentEmoticonView = self;
+        jj_currentIsGIF = NO;
+        jj_currentEmoticonData = nil;
         
-        if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
-            jj_currentEmoticonMsgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
-        } else if ([self respondsToSelector:@selector(wcrefine_getMessageWrap)]) {
-            jj_currentEmoticonMsgWrap = [self performSelector:@selector(wcrefine_getMessageWrap)];
+        // 尝试获取表情包原始数据路径
+        if ([self respondsToSelector:@selector(m_emoticonMD5)]) {
+            NSString *md5 = [self performSelector:@selector(m_emoticonMD5)];
+            if (md5.length > 0) {
+                // 尝试从缓存目录获取GIF文件
+                NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+                NSString *emoticonPath = [docPath stringByAppendingPathComponent:@"emoticon"];
+                
+                // 尝试多个可能的路径
+                NSArray *possiblePaths = @[
+                    [emoticonPath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.gif", md5]],
+                    [emoticonPath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@", md5]],
+                    [[emoticonPath stringByAppendingPathComponent:md5] stringByAppendingPathComponent:@"cover.gif"]
+                ];
+                
+                for (NSString *path in possiblePaths) {
+                    if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+                        NSData *data = [NSData dataWithContentsOfFile:path];
+                        if (data && data.length > 0) {
+                            // 检查是否是GIF
+                            const unsigned char *bytes = (const unsigned char *)[data bytes];
+                            if (data.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+                                jj_currentEmoticonData = data;
+                                jj_currentIsGIF = YES;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
         
-        UIImage *emoticonImage = jj_getEmoticonImage(self);
-        if (emoticonImage) {
-            jj_currentEmoticonImage = emoticonImage;
-        } else {
-            jj_currentEmoticonView = nil;
-            jj_currentEmoticonMsgWrap = nil;
+        // 获取表情图片（作为备用）
+        UIImage *img = jj_getEmoticonImageFromView(self);
+        if (img) {
+            jj_currentEmoticonImage = img;
+            jj_currentChatUserName = jj_getCurrentChatUserName(self);
         }
     }
     %orig;
@@ -1247,22 +1359,16 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
 
 - (void)setMenuItems:(NSArray *)items {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (manager.emoticonScaleEnabled && jj_currentEmoticonView && jj_currentEmoticonImage && items.count > 0) {
+    
+    if (manager.emoticonScaleEnabled && jj_currentEmoticonImage && items.count > 0) {
         NSMutableArray *newItems = [NSMutableArray arrayWithArray:items];
         
         Class MMMenuItemClass = objc_getClass("MMMenuItem");
         if (MMMenuItemClass) {
-            UIImage *scaleIcon = nil;
-            if (@available(iOS 13.0, *)) {
-                scaleIcon = [UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right"];
+            MMMenuItem *scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" target:self action:@selector(jj_showScaleMenu)];
+            if (scaleItem) {
+                [newItems addObject:scaleItem];
             }
-            MMMenuItem *scaleItem = nil;
-            if (scaleIcon && [MMMenuItemClass instancesRespondToSelector:@selector(initWithTitle:icon:target:action:)]) {
-                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" icon:scaleIcon target:self action:@selector(jj_showScaleOptions)];
-            } else {
-                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" target:self action:@selector(jj_showScaleOptions)];
-            }
-            if (scaleItem) [newItems addObject:scaleItem];
         }
         
         %orig(newItems);
@@ -1273,69 +1379,65 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
 
 - (void)hideMenu {
     %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (jj_currentEmoticonView == nil) {
-            jj_currentEmoticonMsgWrap = nil;
-            jj_currentEmoticonImage = nil;
-        }
+    // 延迟清理，给操作留出时间
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        jj_currentEmoticonImage = nil;
+        jj_currentChatUserName = nil;
+        jj_currentEmoticonData = nil;
+        jj_currentIsGIF = NO;
     });
 }
 
 %new
-- (void)jj_showScaleOptions {
+- (void)jj_showScaleMenu {
     UIImage *emoticonImage = jj_currentEmoticonImage;
+    NSString *chatUserName = jj_currentChatUserName;
+    BOOL isGIF = jj_currentIsGIF;
+    
     if (!emoticonImage) return;
     
-    Class MMMenuControllerClass = objc_getClass("MMMenuController");
-    if (MMMenuControllerClass && [MMMenuControllerClass respondsToSelector:@selector(sharedInstance)]) {
-        id menuController = [MMMenuControllerClass sharedInstance];
-        if (menuController && [menuController respondsToSelector:@selector(hideMenu)]) {
-            [menuController hideMenu];
-        }
-    }
+    // 先隐藏当前菜单
+    [self hideMenu];
     
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
         while (topVC.presentedViewController) {
             topVC = topVC.presentedViewController;
         }
         
-        CGSize originalSize = emoticonImage.size;
-        NSString *sizeInfo = [NSString stringWithFormat:@"原尺寸：%.0f×%.0f\n最大尺寸：300×300", originalSize.width, originalSize.height];
+        CGSize size = emoticonImage.size;
+        NSString *typeStr = isGIF ? @"GIF动图" : @"静态图";
+        NSString *msg = [NSString stringWithFormat:@"类型：%@\n尺寸：%.0f×%.0f", typeStr, size.width, size.height];
         
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"调整表情大小" 
-                                                                       message:sizeInfo 
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"调整表情大小"
+                                                                       message:msg
                                                                 preferredStyle:UIAlertControllerStyleActionSheet];
         
-        [alert addAction:[UIAlertAction actionWithTitle:@"🔍 放大 1.5 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            jj_sendScaledEmoticon(emoticonImage, 1.5);
+        [alert addAction:[UIAlertAction actionWithTitle:@"放大 2.0 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledImage(emoticonImage, 2.0, chatUserName);
         }]];
         
-        [alert addAction:[UIAlertAction actionWithTitle:@"🔎 放大 2.0 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            jj_sendScaledEmoticon(emoticonImage, 2.0);
+        [alert addAction:[UIAlertAction actionWithTitle:@"放大 1.5 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledImage(emoticonImage, 1.5, chatUserName);
         }]];
         
-        [alert addAction:[UIAlertAction actionWithTitle:@"🔻 缩小 0.7 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            jj_sendScaledEmoticon(emoticonImage, 0.7);
+        [alert addAction:[UIAlertAction actionWithTitle:@"缩小 0.75 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledImage(emoticonImage, 0.75, chatUserName);
         }]];
         
-        [alert addAction:[UIAlertAction actionWithTitle:@"🔻 缩小 0.5 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            jj_sendScaledEmoticon(emoticonImage, 0.5);
-        }]];
-        
-        [alert addAction:[UIAlertAction actionWithTitle:@"✏️ 自定义比例" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            jj_showCustomScaleInput(emoticonImage, topVC);
+        [alert addAction:[UIAlertAction actionWithTitle:@"缩小 0.5 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledImage(emoticonImage, 0.5, chatUserName);
         }]];
         
         [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-            jj_currentEmoticonView = nil;
-            jj_currentEmoticonMsgWrap = nil;
             jj_currentEmoticonImage = nil;
+            jj_currentChatUserName = nil;
         }]];
         
+        // iPad适配
         if (alert.popoverPresentationController) {
             alert.popoverPresentationController.sourceView = topVC.view;
-            alert.popoverPresentationController.sourceRect = CGRectMake(topVC.view.bounds.size.width/2, topVC.view.bounds.size.height/2, 0, 0);
+            alert.popoverPresentationController.sourceRect = CGRectMake(topVC.view.bounds.size.width/2, topVC.view.bounds.size.height/2, 1, 1);
         }
         
         [topVC presentViewController:alert animated:YES completion:nil];

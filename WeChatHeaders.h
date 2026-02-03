@@ -10,11 +10,6 @@
 - (id)getService:(Class)cls;
 @end
 
-@interface MMContext : NSObject
-+ (id)currentContext;
-- (MMServiceCenter *)serviceCenter;
-@end
-
 @interface CContact : NSObject
 @property (nonatomic, copy) NSString *m_nsUsrName;
 @property (nonatomic, copy) NSString *m_nsNickName;
@@ -84,13 +79,6 @@
 - (void)OpenRedEnvelopesWithResponseDic:(id)arg1 withSign:(id)arg2;
 @end
 
-@interface WCRedEnvelopesControlMgr : NSObject
-- (void)startReceiveRedEnvelopesLogic:(id)arg1 Data:(id)arg2;
-- (void)startReceiveRedEnvelopesLogic:(id)arg1 Data:(id)arg2 Scene:(unsigned int)arg3;
-- (void)startOpenRedEnvelopesDetail:(id)arg1 sendId:(id)arg2 hbKind:(int)arg3 receiveId:(id)arg4;
-- (void)startSystemMessageControlLogic:(id)arg1 NativeUrl:(id)arg2 messageWrap:(id)arg3;
-@end
-
 @interface WCBizUtil : NSObject
 + (id)dictionaryWithDecodedComponets:(NSString *)str separator:(NSString *)sep;
 @end
@@ -98,31 +86,10 @@
 @interface CMessageMgr : NSObject
 // 消息添加
 - (void)AddMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
-- (void)AddLocalMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)AddEmoticonMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
-- (void)onRevokeMsg:(CMessageWrap *)msgWrap;
-// 消息接收 - FLEX确认存在
 - (void)OnAddMessageByReceiver:(id)arg1;
 - (void)onNewSyncAddMessage:(id)arg1;
-// 异步消息处理
-- (void)AsyncOnAddMsg:(id)arg1 MsgWrap:(id)arg2;
-- (void)AsyncOnAddMsgForSession:(id)arg1 MsgWrap:(id)arg2;
-- (void)AsyncOnAddMsgForSession:(id)arg1 MsgWrap:(id)arg2 NewMsgArriveNotify:(BOOL)arg3;
-- (void)AsyncOnPreAddMsg:(id)arg1 MsgWrap:(id)arg2;
-// JJRedBag插件添加的方法
-- (void)jj_handleReceivedMessage:(CMessageWrap *)msgWrap;
-- (void)jj_processRedBagMessage:(CMessageWrap *)msgWrap;
-- (NSDictionary *)jj_parseNativeUrl:(NSString *)content;
-- (NSString *)jj_parseRedBagTitle:(NSString *)content;
-- (void)jj_openRedBagWithContext:(NSDictionary *)context;
-- (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isSelfRedBag:(BOOL)isSelfRedBag;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
-- (void)SendImgMessage:(id)arg1 toUsrName:(NSString *)userName thumbImgData:(NSData *)thumbData midImgData:(NSData *)midData imgData:(NSData *)imgData imgInfo:(id)imgInfo;
-- (void)SendImageMessage:(NSData *)imageData toUsrName:(NSString *)userName;
-- (void)jj_processTransferMessage:(CMessageWrap *)msgWrap;
-- (void)jj_sendReceiveAutoReply:(NSDictionary *)params isGroup:(BOOL)isGroup;
-- (void)jj_sendReceiveNotification:(NSDictionary *)params amount:(long long)amount;
-- (void)jj_sendReceiveLocalNotification:(NSDictionary *)params amount:(long long)amount;
 @end
 
 @interface WCPayLogicMgr : NSObject
@@ -130,41 +97,13 @@
 - (void)handleWCPayFacingReceiveMoneyMsg:(id)arg1 msgType:(int)arg2;
 @end
 
-@interface WCRedEnvelopesLogicMgr (JJRedBag)
-- (void)jj_sendAutoReply:(id)param;
-- (void)jj_sendNotification:(id)param amount:(long long)amount;
-- (void)jj_sendLocalNotification:(id)param amount:(long long)amount;
-- (NSString *)jj_getCurrentTime;
-- (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser;
-@end
-
 @interface CAppViewControllerManager : NSObject
 + (instancetype)getAppViewControllerManager;
 - (void)jumpToChatRoom:(NSString *)usrName;
 @end
 
-@interface WCRedEnvelopesReceiveHomeView : UIView
-@property (nonatomic, weak) id delegate;
-@end
-
-@interface WCRedEnvelopesReceiveControlLogic : NSObject
-@property (nonatomic, strong) NSDictionary *m_dicBaseInfo;
-@property (nonatomic, copy) NSString *m_nsNativeUrl;
-- (void)OnReceiveOpenRedEnvelopes:(NSDictionary *)info;
-- (void)OnReceiveQueryRedEnvelopes:(NSDictionary *)info;
-- (void)OpenRedEnvelopes;
-- (void)queryRedEnvelopes;
-@end
-
 @interface MMNewSessionMgr : NSObject
 - (unsigned int)GenSendMsgTime;
-@end
-
-@interface MMMsgLogicManager : NSObject
-@end
-
-@interface WeixinContentLogicController : NSObject
-@property (nonatomic, strong) CContact *m_contact;
 @end
 
 @interface MMTableViewInfo : NSObject
@@ -233,36 +172,9 @@
 - (NSUInteger)getTotalSelectCount;
 @end
 
-// 抢红包相关的数据结构
-@interface WCRedEnvelopesControlData : NSObject
-@property (nonatomic, copy) NSString *m_oSelectedMessageWrap;
-@property (nonatomic, copy) NSString *m_nativeUrl;
-@property (nonatomic, strong) NSDictionary *m_baseInfo;
-@property (nonatomic, copy) NSString *m_sendId;
-@property (nonatomic, copy) NSString *m_channelId;
-@property (nonatomic, copy) NSString *m_msgType;
-@end
-
 // AppDelegate
 @interface MicroMessengerAppDelegate : UIResponder <UIApplicationDelegate>
 @property (nonatomic, strong) UIWindow *window;
-@end
-
-// 后台任务
-@interface MMBackgroundTaskMgr : NSObject
-+ (instancetype)sharedInstance;
-- (void)startBackgroundTask;
-- (void)endBackgroundTask;
-@end
-
-// 通知
-@interface MMNotificationCenterUtil : NSObject
-+ (void)postNotificationName:(NSString *)name userInfo:(NSDictionary *)info;
-@end
-
-// NSDictionary安全取值扩展
-@interface NSDictionary (SafeValue)
-- (NSString *)stringForKey:(id)key;
 @end
 
 // 红包请求/响应类
@@ -284,14 +196,8 @@
 - (id)JSONDictionary;
 @end
 
-// 表情包相关类
-@interface MMEmoticonView : UIView
-@property (nonatomic, strong) UIImageView *imageView;
-@end
-
 @interface EmoticonMessageCellView : UIView
-@property (nonatomic, strong) MMEmoticonView *emoticonView;
-- (CMessageWrap *)getMessageWrap;
+@property (nonatomic, strong) UIView *emoticonView;
 @end
 
 @interface MMMenuController : UIViewController

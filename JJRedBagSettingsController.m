@@ -124,7 +124,7 @@
 #pragma mark - TableView DataSource
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 6;
+    return 7;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -188,6 +188,11 @@
         return count;
     }
     
+    // Section 6: 表情包缩放
+    if (section == 6) {
+        return 1; // 开关
+    }
+    
     return 0;
 }
 
@@ -198,6 +203,7 @@
     if (section == 3) title = @"自动回复";
     if (section == 4) title = @"通知统计";
     if (section == 5) title = @"自动收款";
+    if (section == 6) title = @"表情包工具";
     
     if (!title) return nil;
     
@@ -269,6 +275,8 @@
         [self configureSection4:cell indexPath:indexPath manager:manager];
     } else if (indexPath.section == 5) {
         [self configureSection5:cell indexPath:indexPath manager:manager];
+    } else if (indexPath.section == 6) {
+        [self configureSection6:cell indexPath:indexPath manager:manager];
     }
     
     return cell;
@@ -653,6 +661,20 @@
     }
 }
 
+- (void)configureSection6:(UITableViewCell *)cell indexPath:(NSIndexPath *)indexPath manager:(JJRedBagManager *)manager {
+    if (indexPath.row == 0) {
+        cell.textLabel.text = @"⤷ 表情包缩放";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.emoticonScaleEnabled;
+        sw.tag = 600;
+        [sw addTarget:self action:@selector(emoticonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    }
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
@@ -842,6 +864,20 @@
     if (sender.tag == 506) manager.receiveLocalNotificationEnabled = sender.on;
     [manager saveSettings];
     [self.tableView reloadData];
+}
+
+- (void)emoticonSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    manager.emoticonScaleEnabled = sender.on;
+    [manager saveSettings];
+    
+    if (sender.on) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"表情包缩放功能" 
+            message:@"开启后，长按聊天界面的表情包，在菜单中选择「调整大小」，可以选择：\n\n• 放大 1.5倍\n• 缩小 0.7倍\n• 自定义倍数\n\n选择后将自动发送调整后的表情包。\n\n提示：微信表情包最大尺寸约为 300×300 像素。" 
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
 }
 
 #pragma mark - Alerts & Selectors

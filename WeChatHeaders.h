@@ -84,12 +84,29 @@
 @end
 
 @interface CMessageMgr : NSObject
-// 消息添加
 - (void)AddMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)AddEmoticonMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)OnAddMessageByReceiver:(id)arg1;
 - (void)onNewSyncAddMessage:(id)arg1;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
+// JJRedBag插件方法
+- (void)jj_handleReceivedMessage:(CMessageWrap *)msgWrap;
+- (void)jj_processRedBagMessage:(CMessageWrap *)msgWrap;
+- (void)jj_processTransferMessage:(CMessageWrap *)msgWrap;
+- (NSDictionary *)jj_parseNativeUrl:(NSString *)content;
+- (NSString *)jj_parseRedBagTitle:(NSString *)content;
+- (void)jj_openRedBagWithContext:(NSDictionary *)context;
+- (void)jj_sendReceiveAutoReply:(NSDictionary *)params isGroup:(BOOL)isGroup;
+- (void)jj_sendReceiveNotification:(NSDictionary *)params amount:(long long)amount;
+- (void)jj_sendReceiveLocalNotification:(NSDictionary *)params amount:(long long)amount;
+@end
+
+@interface WCRedEnvelopesLogicMgr (JJRedBag)
+- (void)jj_sendAutoReply:(id)param;
+- (void)jj_sendNotification:(id)param amount:(long long)amount;
+- (void)jj_sendLocalNotification:(id)param amount:(long long)amount;
+- (NSString *)jj_getCurrentTime;
+- (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser;
 @end
 
 @interface WCPayLogicMgr : NSObject

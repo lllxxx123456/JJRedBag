@@ -552,12 +552,9 @@
 #pragma mark - 后台保活支持
 
 #import <AVFoundation/AVFoundation.h>
-#import <CoreLocation/CoreLocation.h>
-
 static UIBackgroundTaskIdentifier jj_bgTask = UIBackgroundTaskInvalid;
 static NSTimer *jj_keepAliveTimer = nil;
 static AVAudioPlayer *jj_silentAudioPlayer = nil;
-static CLLocationManager *jj_locationManager = nil;
 
 static void jj_startBackgroundKeepAlive(void) {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
@@ -660,35 +657,6 @@ static void jj_stopSilentAudio(void) {
     }
 }
 
-static void jj_startLocationUpdates(void) {
-    if (!jj_locationManager) {
-        jj_locationManager = [[CLLocationManager alloc] init];
-        jj_locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers; // 低精度省电
-        jj_locationManager.distanceFilter = 99999; // 几乎不触发更新
-        jj_locationManager.allowsBackgroundLocationUpdates = YES;
-        jj_locationManager.pausesLocationUpdatesAutomatically = NO;
-    }
-    
-    CLAuthorizationStatus status;
-    if (@available(iOS 14.0, *)) {
-        status = jj_locationManager.authorizationStatus;
-    } else {
-        status = [CLLocationManager authorizationStatus];
-    }
-    
-    if (status == kCLAuthorizationStatusAuthorizedAlways || status == kCLAuthorizationStatusAuthorizedWhenInUse) {
-        [jj_locationManager startUpdatingLocation];
-    }
-}
-
-static void jj_stopLocationUpdates(void) {
-    if (jj_locationManager) {
-        [jj_locationManager stopUpdatingLocation];
-        jj_locationManager.allowsBackgroundLocationUpdates = NO;
-        jj_locationManager = nil;
-    }
-}
-
 static void jj_stopAllBackgroundModes(void) {
     if (jj_keepAliveTimer) {
         [jj_keepAliveTimer invalidate];
@@ -699,7 +667,6 @@ static void jj_stopAllBackgroundModes(void) {
         jj_bgTask = UIBackgroundTaskInvalid;
     }
     jj_stopSilentAudio();
-    jj_stopLocationUpdates();
 }
 
 %hook MicroMessengerAppDelegate
@@ -721,12 +688,6 @@ static void jj_stopAllBackgroundModes(void) {
                     jj_startBackgroundKeepAlive();
                 }];
                 [[NSRunLoop mainRunLoop] addTimer:jj_keepAliveTimer forMode:NSRunLoopCommonModes];
-                break;
-                
-            case JJBackgroundModeLocation:
-                // 位置服务模式
-                jj_startBackgroundKeepAlive();
-                jj_startLocationUpdates();
                 break;
                 
             case JJBackgroundModeAudio:
@@ -1094,23 +1055,46 @@ static UIView *jj_currentEmoticonView = nil;
 static CMessageWrap *jj_currentEmoticonMsgWrap = nil;
 static UIImage *jj_currentEmoticonImage = nil;
 
-static UIImageView *jj_findImageViewInView(UIView *view) {
+static UIImageView *jj_findEmoticonImageView(UIView *view) {
+    UIImageView *bestMatch = nil;
+    CGFloat maxArea = 0;
+    
     for (UIView *subview in view.subviews) {
-        if ([subview isKindOfClass:[UIImageView class]]) {
-            return (UIImageView *)subview;
+        NSString *className = NSStringFromClass([subview class]);
+        
+        if ([className containsString:@"Emoticon"] || [className containsString:@"Sticker"]) {
+            if ([subview isKindOfClass:[UIImageView class]]) {
+                return (UIImageView *)subview;
+            }
+            for (UIView *child in subview.subviews) {
+                if ([child isKindOfClass:[UIImageView class]]) {
+                    UIImageView *iv = (UIImageView *)child;
+                    if (iv.image) return iv;
+                }
+            }
         }
+        
+        if ([subview isKindOfClass:[UIImageView class]]) {
+            UIImageView *iv = (UIImageView *)subview;
+            CGFloat area = iv.bounds.size.width * iv.bounds.size.height;
+            if (iv.image && area > maxArea && area > 400) {
+                maxArea = area;
+                bestMatch = iv;
+            }
+        }
+        
         for (UIView *subsubview in subview.subviews) {
             if ([subsubview isKindOfClass:[UIImageView class]]) {
-                return (UIImageView *)subsubview;
-            }
-            for (UIView *subsubsubview in subsubview.subviews) {
-                if ([subsubsubview isKindOfClass:[UIImageView class]]) {
-                    return (UIImageView *)subsubsubview;
+                UIImageView *iv = (UIImageView *)subsubview;
+                CGFloat area = iv.bounds.size.width * iv.bounds.size.height;
+                if (iv.image && area > maxArea && area > 400) {
+                    maxArea = area;
+                    bestMatch = iv;
                 }
             }
         }
     }
-    return nil;
+    return bestMatch;
 }
 
 static UIViewController *jj_findBaseMsgContentViewController(void) {
@@ -1180,12 +1164,14 @@ static void jj_sendScaledEmoticon(UIImage *originalImage, CGFloat scaleFactor) {
     }
     
     UIViewController *chatVC = jj_findBaseMsgContentViewController();
-    if (chatVC && [chatVC respondsToSelector:@selector(pasteImage:)]) {
-        [chatVC performSelector:@selector(pasteImage:) withObject:scaledImage];
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-        return;
+    if (chatVC) {
+        if ([chatVC respondsToSelector:@selector(sendCaptruedImage:)]) {
+            [chatVC performSelector:@selector(sendCaptruedImage:) withObject:scaledImage];
+        } else if ([chatVC respondsToSelector:@selector(sendCaptuedImage:)]) {
+            [chatVC performSelector:@selector(sendCaptuedImage:) withObject:scaledImage];
+        } else if ([chatVC respondsToSelector:@selector(SendImageMessage:)]) {
+            [chatVC performSelector:@selector(SendImageMessage:) withObject:scaledImage];
+        }
     }
     
     jj_currentEmoticonView = nil;
@@ -1234,9 +1220,12 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
             jj_currentEmoticonMsgWrap = [self performSelector:@selector(wcrefine_getMessageWrap)];
         }
         
-        UIImageView *imageView = jj_findImageViewInView(self);
+        UIImageView *imageView = jj_findEmoticonImageView(self);
         if (imageView && imageView.image) {
             jj_currentEmoticonImage = imageView.image;
+        } else {
+            jj_currentEmoticonView = nil;
+            jj_currentEmoticonMsgWrap = nil;
         }
     }
     %orig;

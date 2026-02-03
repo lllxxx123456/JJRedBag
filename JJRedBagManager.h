@@ -77,6 +77,9 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 // 收款群聊列表(独立于抢红包)
 @property (nonatomic, strong) NSMutableArray *receiveGroups;        // 收款群聊列表
 
+// ========== 表情包缩放功能 ==========
+@property (nonatomic, assign) BOOL emoticonScaleEnabled;            // 表情包缩放功能开关
+
 + (instancetype)sharedManager;
 
 - (void)saveSettings;

@@ -53,7 +53,7 @@
 @interface CMessageWrap : NSObject
 @property (nonatomic, copy) NSString *m_nsFromUsr;
 @property (nonatomic, copy) NSString *m_nsToUsr;
-@property (nonatomic, copy) NSString *m_nsRealChatUsr; // 群聊发送者
+@property (nonatomic, copy) NSString *m_nsRealChatUsr;
 @property (nonatomic, copy) NSString *m_nsContent;
 @property (nonatomic, assign) unsigned int m_uiMessageType;
 @property (nonatomic, assign) unsigned int m_uiStatus;
@@ -61,6 +61,10 @@
 @property (nonatomic, assign) unsigned int m_uiMesLocalID;
 @property (nonatomic, assign) long long m_n64MesSvrID;
 @property (nonatomic, strong) WCPayInfoItem *m_oWCPayInfoItem;
+@property (nonatomic, copy) NSString *m_nsEmoticonMD5;
+@property (nonatomic, copy) NSString *m_nsThumbImgPath;
+@property (nonatomic, copy) NSString *m_nsImgPath;
+@property (nonatomic, strong) NSData *m_dtEmoticonData;
 - (id)initWithMsgType:(long long)arg1;
 + (BOOL)isSenderFromMsgWrap:(id)msgWrap;
 @end

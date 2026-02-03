@@ -277,3 +277,35 @@
 @interface NSString (SBJSON)
 - (id)JSONDictionary;
 @end
+
+// 表情包相关类
+@interface MMEmoticonView : UIView
+@property (nonatomic, strong) UIImageView *imageView;
+@end
+
+@interface EmoticonMessageCellView : UIView
+@property (nonatomic, strong) MMEmoticonView *emoticonView;
+- (CMessageWrap *)getMessageWrap;
+@end
+
+@interface MMMenuController : UIViewController
+@property (nonatomic, strong) NSArray *menuItems;
+@property (nonatomic, weak) UIView *targetView;
++ (instancetype)sharedInstance;
+- (void)setMenuItems:(NSArray *)items;
+- (void)showMenuWithTargetRect:(CGRect)rect inView:(UIView *)view;
+- (void)hideMenu;
+@end
+
+@interface MMMenuItem : NSObject
+@property (nonatomic, strong) id target;
+@property (nonatomic, assign) SEL action;
+@property (nonatomic, copy) id actionBlock;
+@property (nonatomic, assign) NSInteger menuType;
+@property (nonatomic, strong) UIImage *iconImage;
+@property (nonatomic, strong) UIColor *titleColor;
+@property (nonatomic, copy) NSString *subtitle;
+- (instancetype)initWithTitle:(id)title target:(id)target action:(SEL)action;
+- (instancetype)initWithTitle:(id)title icon:(id)icon target:(id)target action:(SEL)action;
+- (instancetype)initWithType:(NSInteger)type target:(id)target action:(SEL)action;
+@end

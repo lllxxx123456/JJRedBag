@@ -1241,7 +1241,13 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
         
         Class MMMenuItemClass = objc_getClass("MMMenuItem");
         if (MMMenuItemClass) {
-            MMMenuItem *scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" target:self action:@selector(jj_showScaleOptions)];
+            UIImage *scaleIcon = [UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right"];
+            MMMenuItem *scaleItem = nil;
+            if (scaleIcon && [MMMenuItemClass instancesRespondToSelector:@selector(initWithTitle:icon:target:action:)]) {
+                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" icon:scaleIcon target:self action:@selector(jj_showScaleOptions)];
+            } else {
+                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"调整大小" target:self action:@selector(jj_showScaleOptions)];
+            }
             if (scaleItem) [newItems addObject:scaleItem];
         }
         
@@ -1263,47 +1269,57 @@ static void jj_showCustomScaleInput(UIImage *emoticonImage, UIViewController *to
 
 %new
 - (void)jj_showScaleOptions {
-    [self hideMenu];
-    
     UIImage *emoticonImage = jj_currentEmoticonImage;
     if (!emoticonImage) return;
     
-    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-    while (topVC.presentedViewController) {
-        topVC = topVC.presentedViewController;
-    }
+    [self hideMenu];
     
-    CGSize originalSize = emoticonImage.size;
-    NSString *sizeInfo = [NSString stringWithFormat:@"原图尺寸：%.0f×%.0f\n微信最大表情尺寸：300×300\n\n选择缩放比例后将自动发送", originalSize.width, originalSize.height];
-    
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"调整表情大小" 
-                                                                   message:sizeInfo 
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"放大 (1.5倍)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        jj_sendScaledEmoticon(emoticonImage, 1.5);
-    }]];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"缩小 (0.7倍)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        jj_sendScaledEmoticon(emoticonImage, 0.7);
-    }]];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"自定义比例" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        jj_showCustomScaleInput(emoticonImage, topVC);
-    }]];
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        jj_currentEmoticonView = nil;
-        jj_currentEmoticonMsgWrap = nil;
-        jj_currentEmoticonImage = nil;
-    }]];
-    
-    if (alert.popoverPresentationController) {
-        alert.popoverPresentationController.sourceView = topVC.view;
-        alert.popoverPresentationController.sourceRect = CGRectMake(topVC.view.bounds.size.width/2, topVC.view.bounds.size.height/2, 0, 0);
-    }
-    
-    [topVC presentViewController:alert animated:YES completion:nil];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        while (topVC.presentedViewController) {
+            topVC = topVC.presentedViewController;
+        }
+        
+        CGSize originalSize = emoticonImage.size;
+        NSString *sizeInfo = [NSString stringWithFormat:@"原尺寸：%.0f×%.0f\n最大尺寸：300×300", originalSize.width, originalSize.height];
+        
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"调整表情大小" 
+                                                                       message:sizeInfo 
+                                                                preferredStyle:UIAlertControllerStyleActionSheet];
+        
+        [alert addAction:[UIAlertAction actionWithTitle:@"🔍 放大 1.5 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledEmoticon(emoticonImage, 1.5);
+        }]];
+        
+        [alert addAction:[UIAlertAction actionWithTitle:@"🔎 放大 2.0 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledEmoticon(emoticonImage, 2.0);
+        }]];
+        
+        [alert addAction:[UIAlertAction actionWithTitle:@"🔻 缩小 0.7 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledEmoticon(emoticonImage, 0.7);
+        }]];
+        
+        [alert addAction:[UIAlertAction actionWithTitle:@"🔻 缩小 0.5 倍" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_sendScaledEmoticon(emoticonImage, 0.5);
+        }]];
+        
+        [alert addAction:[UIAlertAction actionWithTitle:@"✏️ 自定义比例" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            jj_showCustomScaleInput(emoticonImage, topVC);
+        }]];
+        
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+            jj_currentEmoticonView = nil;
+            jj_currentEmoticonMsgWrap = nil;
+            jj_currentEmoticonImage = nil;
+        }]];
+        
+        if (alert.popoverPresentationController) {
+            alert.popoverPresentationController.sourceView = topVC.view;
+            alert.popoverPresentationController.sourceRect = CGRectMake(topVC.view.bounds.size.width/2, topVC.view.bounds.size.height/2, 0, 0);
+        }
+        
+        [topVC presentViewController:alert animated:YES completion:nil];
+    });
 }
 
 %end

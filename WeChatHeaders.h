@@ -113,6 +113,8 @@
 - (void)jj_openRedBagWithContext:(NSDictionary *)context;
 - (void)jj_openRedBagWithNativeUrl:(NSString *)nativeUrl msgWrap:(CMessageWrap *)msgWrap isSelfRedBag:(BOOL)isSelfRedBag;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
+- (void)SendImgMessage:(id)arg1 toUsrName:(NSString *)userName thumbImgData:(NSData *)thumbData midImgData:(NSData *)midData imgData:(NSData *)imgData imgInfo:(id)imgInfo;
+- (void)SendImageMessage:(NSData *)imageData toUsrName:(NSString *)userName;
 - (void)jj_processTransferMessage:(CMessageWrap *)msgWrap;
 - (void)jj_sendReceiveAutoReply:(NSDictionary *)params isGroup:(BOOL)isGroup;
 - (void)jj_sendReceiveNotification:(NSDictionary *)params amount:(long long)amount;

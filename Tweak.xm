@@ -405,15 +405,24 @@
         if (!manager.autoReceivePrivateEnabled) return;
     }
     
+    // 在进入异步块之前复制所有需要的值，避免访问已释放的对象
+    NSString *transferId = [payInfo.m_nsTransferID copy] ?: @"";
+    NSString *transactionId = [payInfo.m_nsTranscationID copy] ?: @"";
+    NSString *payerUsername = [payInfo.transfer_payer_username copy] ?: @"";
+    NSString *amountStr = [payInfo.m_total_fee copy] ?: @"0";
+    NSString *memo = [payInfo.m_payMemo copy] ?: @"";
+    long long amountValue = [amountStr longLongValue];
+    NSString *fromUserCopy = [fromUser copy];
+    
     // 构建收款请求参数
     NSMutableDictionary *confirmParams = [NSMutableDictionary dictionary];
-    confirmParams[@"transferId"] = payInfo.m_nsTransferID ?: @"";
-    confirmParams[@"transactionId"] = payInfo.m_nsTranscationID ?: @"";
-    confirmParams[@"fromUser"] = fromUser;
+    confirmParams[@"transferId"] = transferId;
+    confirmParams[@"transactionId"] = transactionId;
+    confirmParams[@"fromUser"] = fromUserCopy;
     confirmParams[@"isGroup"] = @(isGroup);
-    confirmParams[@"payerUsername"] = payInfo.transfer_payer_username ?: @"";
-    confirmParams[@"amount"] = payInfo.m_total_fee ?: @"0";
-    confirmParams[@"memo"] = payInfo.m_payMemo ?: @"";
+    confirmParams[@"payerUsername"] = payerUsername;
+    confirmParams[@"amount"] = amountStr;
+    confirmParams[@"memo"] = memo;
     
     // 执行自动收款
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -424,26 +433,27 @@
                 [payLogicMgr ConfirmTransferMoney:confirmParams];
                 
                 // 更新累计金额
-                long long amount = [payInfo.m_total_fee longLongValue];
-                manager.totalReceiveAmount += amount;
-                [manager saveSettings];
+                [[JJRedBagManager sharedManager] setTotalReceiveAmount:[[JJRedBagManager sharedManager] totalReceiveAmount] + amountValue];
+                [[JJRedBagManager sharedManager] saveSettings];
                 
                 // 发送通知
-                if (manager.receiveNotificationEnabled && manager.notificationChatId.length > 0) {
-                    [self jj_sendReceiveNotification:confirmParams amount:amount];
+                JJRedBagManager *mgr = [JJRedBagManager sharedManager];
+                if (mgr.receiveNotificationEnabled && mgr.notificationChatId.length > 0) {
+                    [self jj_sendReceiveNotification:confirmParams amount:amountValue];
                 }
                 
                 // 本地弹窗通知
-                if (manager.receiveLocalNotificationEnabled) {
-                    [self jj_sendReceiveLocalNotification:confirmParams amount:amount];
+                if (mgr.receiveLocalNotificationEnabled) {
+                    [self jj_sendReceiveLocalNotification:confirmParams amount:amountValue];
                 }
                 
                 // 自动回复
-                if (isGroup && manager.receiveAutoReplyGroupEnabled && manager.receiveAutoReplyContent.length > 0) {
+                BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
+                if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                         [self jj_sendReceiveAutoReply:confirmParams isGroup:YES];
                     });
-                } else if (!isGroup && manager.receiveAutoReplyPrivateEnabled && manager.receiveAutoReplyContent.length > 0) {
+                } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                         [self jj_sendReceiveAutoReply:confirmParams isGroup:NO];
                     });
@@ -1074,6 +1084,162 @@ static void jj_stopAllBackgroundModes(void) {
             [topVC presentViewController:alert animated:YES completion:nil];
         });
     }
+}
+
+%end
+
+#pragma mark - 表情包放大/缩小功能
+
+static UIView *jj_currentEmoticonView = nil;
+static CMessageWrap *jj_currentEmoticonMsgWrap = nil;
+
+%hook EmoticonMessageCellView
+
+- (void)longPressGestureRecognizerAction:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        jj_currentEmoticonView = self;
+        if ([self respondsToSelector:@selector(getMessageWrap)]) {
+            jj_currentEmoticonMsgWrap = [self getMessageWrap];
+        }
+    }
+    %orig;
+}
+
+%end
+
+%hook MMMenuController
+
+- (void)setMenuItems:(NSArray *)items {
+    if (jj_currentEmoticonView && items.count > 0) {
+        NSMutableArray *newItems = [NSMutableArray arrayWithArray:items];
+        
+        Class MMMenuItemClass = objc_getClass("MMMenuItem");
+        if (MMMenuItemClass) {
+            MMMenuItem *enlargeItem = [[MMMenuItemClass alloc] initWithTitle:@"放大" target:self action:@selector(jj_enlargeEmoticon)];
+            MMMenuItem *shrinkItem = [[MMMenuItemClass alloc] initWithTitle:@"缩小" target:self action:@selector(jj_shrinkEmoticon)];
+            MMMenuItem *resetItem = [[MMMenuItemClass alloc] initWithTitle:@"还原" target:self action:@selector(jj_resetEmoticon)];
+            
+            if (enlargeItem) [newItems addObject:enlargeItem];
+            if (shrinkItem) [newItems addObject:shrinkItem];
+            if (resetItem) [newItems addObject:resetItem];
+        }
+        
+        %orig(newItems);
+    } else {
+        %orig;
+    }
+}
+
+- (void)hideMenu {
+    %orig;
+    jj_currentEmoticonView = nil;
+    jj_currentEmoticonMsgWrap = nil;
+}
+
+%new
+- (void)jj_enlargeEmoticon {
+    [self jj_adjustEmoticonScale:1.5];
+}
+
+%new
+- (void)jj_shrinkEmoticon {
+    [self jj_adjustEmoticonScale:0.7];
+}
+
+%new
+- (void)jj_resetEmoticon {
+    [self jj_adjustEmoticonScale:0];
+}
+
+%new
+- (void)jj_adjustEmoticonScale:(CGFloat)scaleFactor {
+    if (!jj_currentEmoticonView) return;
+    
+    UIView *emoticonCellView = jj_currentEmoticonView;
+    
+    // 查找MMEmoticonView
+    UIView *mmEmoticonView = nil;
+    for (UIView *subview in emoticonCellView.subviews) {
+        if ([subview isKindOfClass:objc_getClass("MMEmoticonView")] ||
+            [NSStringFromClass([subview class]) containsString:@"Emoticon"]) {
+            mmEmoticonView = subview;
+            break;
+        }
+        for (UIView *subsubview in subview.subviews) {
+            if ([subsubview isKindOfClass:objc_getClass("MMEmoticonView")] ||
+                [NSStringFromClass([subsubview class]) containsString:@"Emoticon"]) {
+                mmEmoticonView = subsubview;
+                break;
+            }
+        }
+    }
+    
+    if (!mmEmoticonView) {
+        mmEmoticonView = emoticonCellView;
+    }
+    
+    // 查找UIImageView
+    UIImageView *imageView = nil;
+    for (UIView *subview in mmEmoticonView.subviews) {
+        if ([subview isKindOfClass:[UIImageView class]]) {
+            imageView = (UIImageView *)subview;
+            break;
+        }
+    }
+    
+    if (!imageView) {
+        for (UIView *subview in emoticonCellView.subviews) {
+            for (UIView *subsubview in subview.subviews) {
+                if ([subsubview isKindOfClass:[UIImageView class]]) {
+                    imageView = (UIImageView *)subsubview;
+                    break;
+                }
+            }
+            if (imageView) break;
+        }
+    }
+    
+    if (!imageView) return;
+    
+    // 获取原始图片
+    UIImage *originalImage = imageView.image;
+    if (!originalImage) return;
+    
+    CGSize currentSize = imageView.bounds.size;
+    CGSize newSize;
+    
+    if (scaleFactor == 0) {
+        // 还原：使用原始图片尺寸，但限制最大尺寸
+        CGFloat maxDimension = 200.0;
+        CGFloat scale = MIN(maxDimension / originalImage.size.width, maxDimension / originalImage.size.height);
+        scale = MIN(scale, 1.0);
+        newSize = CGSizeMake(originalImage.size.width * scale, originalImage.size.height * scale);
+    } else {
+        // 放大或缩小
+        newSize = CGSizeMake(currentSize.width * scaleFactor, currentSize.height * scaleFactor);
+        
+        // 限制尺寸范围
+        CGFloat minSize = 40.0;
+        CGFloat maxSize = 300.0;
+        newSize.width = MAX(minSize, MIN(maxSize, newSize.width));
+        newSize.height = MAX(minSize, MIN(maxSize, newSize.height));
+    }
+    
+    // 调整ImageView的frame
+    CGRect newFrame = imageView.frame;
+    newFrame.size = newSize;
+    
+    [UIView animateWithDuration:0.2 animations:^{
+        imageView.frame = newFrame;
+        
+        // 同时调整父视图
+        CGRect parentFrame = mmEmoticonView.frame;
+        parentFrame.size = CGSizeMake(newSize.width + 20, newSize.height + 20);
+        mmEmoticonView.frame = parentFrame;
+    }];
+    
+    // 隐藏菜单
+    [self hideMenu];
 }
 
 %end

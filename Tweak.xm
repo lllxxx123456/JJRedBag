@@ -824,6 +824,10 @@ static void jj_stopAllBackgroundModes(void) {
             // 检查是否抢到金额
             long long amount = [responseDict[@"amount"] longLongValue];
             if (amount > 0) {
+                // 获取红包总金额
+                long long totalAmount = [responseDict[@"totalAmount"] longLongValue];
+                param.totalAmount = totalAmount;
+                
                 // 累加金额
                 manager.totalAmount += amount;
                 [manager saveSettings];
@@ -889,11 +893,15 @@ static void jj_stopAllBackgroundModes(void) {
     
     // 格式化金额 (分转元)
     double amountYuan = amount / 100.0;
+    double totalAmountYuan = param.totalAmount / 100.0;
     
     // 构建通知消息
     NSMutableString *msg = [NSMutableString string];
     [msg appendString:@"又为您抢到一个红包：\n"];
-    [msg appendFormat:@"本次金额：%.2f元\n", amountYuan];
+    [msg appendFormat:@"金额：%.2f元\n", amountYuan];
+    if (param.totalAmount > 0) {
+        [msg appendFormat:@"总金额：%.2f元\n", totalAmountYuan];
+    }
     
     // 显示发送者
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
@@ -1073,9 +1081,36 @@ static UIImage *jj_currentEmoticonImage = nil;
 static NSData *jj_currentEmoticonData = nil;
 static BOOL jj_currentIsGIF = NO;
 
+// 从MMEmoticonView获取原始图片（优先从emoticonWrap获取高清数据）
 static UIImage *jj_getEmoticonImageFromView(UIView *view) {
     if (!view) return nil;
     
+    // 优先从MMEmoticonView的emoticonWrap获取原始图片数据
+    if ([view isKindOfClass:objc_getClass("MMEmoticonView")]) {
+        MMEmoticonView *emoticonView = (MMEmoticonView *)view;
+        @try {
+            CEmoticonWrap *wrap = emoticonView.emoticonWrap;
+            if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) {
+                UIImage *img = [UIImage imageWithData:wrap.m_imageData];
+                if (img && img.size.width > 10) return img;
+            }
+            // 备用：从getFirstFrameImage获取
+            if ([emoticonView respondsToSelector:@selector(getFirstFrameImage)]) {
+                UIImage *firstFrame = [emoticonView getFirstFrameImage];
+                if (firstFrame && firstFrame.size.width > 10) return firstFrame;
+            }
+        } @catch (NSException *e) {}
+    }
+    
+    // 递归查找MMEmoticonView
+    for (UIView *subview in view.subviews) {
+        if ([subview isKindOfClass:objc_getClass("MMEmoticonView")]) {
+            UIImage *img = jj_getEmoticonImageFromView(subview);
+            if (img) return img;
+        }
+    }
+    
+    // 最后回退到UIImageView
     if ([view isKindOfClass:[UIImageView class]]) {
         UIImageView *iv = (UIImageView *)view;
         if (iv.image && iv.image.size.width > 10) {
@@ -1147,6 +1182,19 @@ static void jj_loadEmoticonDataFromMsgWrap(CMessageWrap *msgWrap) {
     jj_currentEmoticonData = nil;
     if (!msgWrap) return;
     
+    // 如果msgWrap自带表情数据，优先使用
+    if (msgWrap.m_dtEmoticonData && msgWrap.m_dtEmoticonData.length > 0) {
+        NSData *data = msgWrap.m_dtEmoticonData;
+        const unsigned char *bytes = (const unsigned char *)[data bytes];
+        if (data.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+            jj_currentEmoticonData = data;
+            jj_currentIsGIF = YES;
+            return;
+        }
+        jj_currentEmoticonData = data;
+        return;
+    }
+    
     NSString *md5 = msgWrap.m_nsEmoticonMD5;
     if (!md5 || md5.length == 0) return;
     
@@ -1165,6 +1213,16 @@ static void jj_loadEmoticonDataFromMsgWrap(CMessageWrap *msgWrap) {
                         return;
                     }
                     jj_currentEmoticonData = data;
+                    return;
+                }
+            }
+            // 备用：通过getEmoticonImageByMD5获取UIImage再转data
+            if ([emoticonMgrClass respondsToSelector:@selector(getEmoticonImageByMD5:)]) {
+                UIImage *emoticonImg = [emoticonMgrClass getEmoticonImageByMD5:md5];
+                if (emoticonImg && emoticonImg.size.width > 10) {
+                    // 同时更新全局图片为高清版本
+                    jj_currentEmoticonImage = emoticonImg;
+                    jj_currentEmoticonData = UIImagePNGRepresentation(emoticonImg);
                     return;
                 }
             }
@@ -1257,7 +1315,7 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     BOOL isGIF = jj_currentIsGIF;
     UIView *savedSourceView = sourceView; // 保存sourceView用于查找VC
     
-    if (!toUserName || toUserName.length == 0 || !originalImage) return;
+    if (!toUserName || toUserName.length == 0 || (!originalImage && !emoticonData)) return;
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSData *imageData = nil;
@@ -1484,9 +1542,56 @@ static void jj_showScaleActionSheet(void) {
         // 保存全局状态
         jj_currentEmoticonMsgWrap = msgWrap;
         jj_currentChatUserName = jj_getChatUserNameFromResponderChain(self);
-        jj_currentEmoticonImage = jj_getEmoticonImageFromView(self);
         jj_currentSourceView = self;
-        jj_loadEmoticonDataFromMsgWrap(msgWrap);
+        
+        // 优先从m_emoticonView的emoticonWrap获取原始图片数据
+        jj_currentEmoticonImage = nil;
+        jj_currentEmoticonData = nil;
+        jj_currentIsGIF = NO;
+        
+        // 尝试从EmoticonMessageCellView的m_emoticonView获取
+        MMEmoticonView *emoticonView = nil;
+        if ([self respondsToSelector:@selector(m_emoticonView)]) {
+            emoticonView = [self performSelector:@selector(m_emoticonView)];
+        }
+        
+        if (emoticonView) {
+            @try {
+                CEmoticonWrap *wrap = emoticonView.emoticonWrap;
+                if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) {
+                    NSData *data = wrap.m_imageData;
+                    jj_currentEmoticonData = data;
+                    const unsigned char *bytes = (const unsigned char *)[data bytes];
+                    if (data.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+                        jj_currentIsGIF = YES;
+                    }
+                    UIImage *img = [UIImage imageWithData:data];
+                    if (img) jj_currentEmoticonImage = img;
+                }
+                // 备用：getFirstFrameImage
+                if (!jj_currentEmoticonImage && [emoticonView respondsToSelector:@selector(getFirstFrameImage)]) {
+                    UIImage *firstFrame = [emoticonView getFirstFrameImage];
+                    if (firstFrame && firstFrame.size.width > 10) {
+                        jj_currentEmoticonImage = firstFrame;
+                    }
+                }
+            } @catch (NSException *e) {}
+        }
+        
+        // 如果从emoticonView获取失败，回退到递归查找
+        if (!jj_currentEmoticonImage) {
+            jj_currentEmoticonImage = jj_getEmoticonImageFromView(self);
+        }
+        
+        // 加载原始数据（如果还没有的话）
+        if (!jj_currentEmoticonData) {
+            jj_loadEmoticonDataFromMsgWrap(msgWrap);
+        }
+        
+        // 如果图片仍然为空但有数据，从数据生成图片
+        if (!jj_currentEmoticonImage && jj_currentEmoticonData) {
+            jj_currentEmoticonImage = [UIImage imageWithData:jj_currentEmoticonData];
+        }
         
         // 关闭当前菜单
         MMMenuController *menuCtrl = [objc_getClass("MMMenuController") sharedMenuController];

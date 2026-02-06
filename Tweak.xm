@@ -396,7 +396,6 @@
     long long amountValue = [amountStr longLongValue];
     NSString *fromUserCopy = [fromUser copy];
     NSString *selfUserNameCopy = [selfUserName copy];
-    NSString *msgContent = [msgWrap.m_nsContent copy] ?: @"";
     unsigned int invalidTime = payInfo.m_uiInvalidTime;
     unsigned int beginTransferTime = payInfo.m_uiBeginTransferTime;
     
@@ -1088,7 +1087,7 @@ static UIImage *jj_getEmoticonImageFromView(UIView *view) {
         }
         // 备用：getFirstFrameImage
         if ([view respondsToSelector:@selector(getFirstFrameImage)]) {
-            UIImage *firstFrame = [(MMEmoticonView *)view getFirstFrameImage];
+            UIImage *firstFrame = [(id)view getFirstFrameImage];
             if (firstFrame && firstFrame.size.width > 10) return firstFrame;
         }
     }

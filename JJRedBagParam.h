@@ -19,6 +19,7 @@
 @property (nonatomic, copy) NSString *realChatUser;   // 群聊实际发送者ID
 @property (nonatomic, assign) BOOL isGroup;           // 是否为群聊
 @property (nonatomic, copy) NSString *content;        // 红包标题/内容
+@property (nonatomic, assign) long long totalAmount;   // 红包总金额(分)
 
 - (NSDictionary *)toParams;
 

@@ -1360,7 +1360,7 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
                 [finalData writeToFile:tempPath atomically:YES];
                 
                 msgWrap.m_nsEmoticonMD5 = [NSString stringWithFormat:@"jj_emo_%u_%u", msgWrap.m_uiCreateTime, arc4random()];
-                if ([msgWrap respondsToSelector:@selector(setM_uiEmoticonType:)]) msgWrap.m_uiEmoticonType = 1;
+                if ([msgWrap respondsToSelector:@selector(setM_uiEmoticonType:)]) [msgWrap setValue:@(1) forKey:@"m_uiEmoticonType"];
                 if ([msgWrap respondsToSelector:@selector(setM_nsThumbImgPath:)]) msgWrap.m_nsThumbImgPath = tempPath;
                 if ([msgWrap respondsToSelector:@selector(setM_nsImgPath:)]) msgWrap.m_nsImgPath = tempPath;
                 if ([msgWrap respondsToSelector:@selector(setM_dtImg:)]) [msgWrap setValue:finalData forKey:@"m_dtImg"];

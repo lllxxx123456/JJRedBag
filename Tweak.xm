@@ -1532,16 +1532,5 @@ static void jj_showScaleActionSheet(void) {
         });
     } @catch (NSException *exception) {}
 }
-        
-        // 关闭当前菜单
-        MMMenuController *menuCtrl = [objc_getClass("MMMenuController") sharedMenuController];
-        if (menuCtrl) [menuCtrl setMenuVisible:NO animated:YES];
-        
-        // 延迟显示缩放选择菜单（等菜单关闭动画完成）
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            jj_showScaleActionSheet();
-        });
-    } @catch (NSException *exception) {}
-}
 
 %end

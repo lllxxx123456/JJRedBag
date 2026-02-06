@@ -112,6 +112,8 @@
 @interface WCPayLogicMgr : NSObject
 - (void)ConfirmTransferMoney:(id)arg1;
 - (void)handleWCPayFacingReceiveMoneyMsg:(id)arg1 msgType:(int)arg2;
+- (void)CheckTransferMoneyStatus:(id)arg1;
+- (void)OnGetNewXmlMsg:(id)arg1 Type:(id)arg2 MsgWrap:(id)arg3;
 @end
 
 @interface CAppViewControllerManager : NSObject
@@ -213,20 +215,69 @@
 - (id)JSONDictionary;
 @end
 
-@interface EmoticonMessageCellView : UIView
-@property (nonatomic, strong) UIView *emoticonView;
+@interface CommonMessageCellView : UIView
+@property (readonly, nonatomic) id viewModel;
+- (id)operationMenuItems;
+- (id)filteredMenuItems:(id)items;
+- (void)onLongTouch;
+- (struct CGRect)showRectForMenuController;
+- (id)getViewController;
+@end
+
+@interface CommonMessageViewModel : NSObject
+@property (nonatomic, strong) CMessageWrap *messageWrap;
+@property (nonatomic, strong) CContact *contact;
+@property (nonatomic, strong) CContact *chatContact;
+@end
+
+@interface MMEmoticonView : UIView
+@end
+
+@interface EmoticonMessageViewModel : CommonMessageViewModel
+@end
+
+@interface EmoticonMessageCellView : CommonMessageCellView
+@property (readonly, nonatomic) EmoticonMessageViewModel *viewModel;
+@property (nonatomic, strong) MMEmoticonView *m_emoticonView;
+- (id)operationMenuItems;
+- (id)filteredMenuItems:(id)items;
+- (void)onLongTouch;
+@end
+
+@interface BaseMsgContentViewController : UIViewController
+- (NSString *)getChatUsername;
+- (id)GetContact;
+- (id)GetCContact;
+- (void)SendEmoticonMesssageToolView:(id)arg1;
+@end
+
+@interface CEmoticonWrap : NSObject
+@property (nonatomic) unsigned int m_uiType;
+@property (nonatomic) unsigned int m_uiGameType;
+@property (retain, nonatomic) NSString *m_nsAppID;
+@property (retain, nonatomic) NSString *m_nsThumbImgPath;
+@property (retain, nonatomic) NSData *m_imageData;
+@property (nonatomic) unsigned int m_extFlag;
+@end
+
+@interface CEmoticonMgr : NSObject
++ (id)GetEmoticonByMD5:(id)md5;
++ (id)getEmoticonImageByMD5:(id)md5;
++ (id)emoticonMsgForImageData:(id)data errorMsg:(id *)errorMsg;
++ (id)genEmoticonMsgForEmoticonWrap:(id)wrap imageData:(id)data;
 @end
 
 @interface MMMenuController : UIViewController
 @property (nonatomic, strong) NSArray *menuItems;
 @property (nonatomic, weak) UIView *targetView;
-+ (instancetype)sharedInstance;
+@property (nonatomic, getter=isMenuVisible) BOOL menuVisible;
++ (id)sharedMenuController;
 - (void)setMenuItems:(NSArray *)items;
-- (void)showMenuWithTargetRect:(CGRect)rect inView:(UIView *)view;
-- (void)hideMenu;
+- (void)setMenuVisible:(BOOL)visible animated:(BOOL)animated;
+- (void)setTargetRect:(CGRect)rect inView:(UIView *)view;
 @end
 
-@interface MMMenuItem : NSObject
+@interface MMMenuItem : UIMenuItem
 @property (nonatomic, strong) id target;
 @property (nonatomic, assign) SEL action;
 @property (nonatomic, copy) id actionBlock;
@@ -234,7 +285,9 @@
 @property (nonatomic, strong) UIImage *iconImage;
 @property (nonatomic, strong) UIColor *titleColor;
 @property (nonatomic, copy) NSString *subtitle;
-- (instancetype)initWithTitle:(id)title target:(id)target action:(SEL)action;
-- (instancetype)initWithTitle:(id)title icon:(id)icon target:(id)target action:(SEL)action;
-- (instancetype)initWithType:(NSInteger)type target:(id)target action:(SEL)action;
+@property (nonatomic, strong) id userInfo;
+- (id)initWithTitle:(id)title target:(id)target action:(SEL)action;
+- (id)initWithTitle:(id)title icon:(id)icon target:(id)target action:(SEL)action;
+- (id)initWithTitle:(id)title svgName:(id)svgName target:(id)target action:(SEL)action;
+- (id)initWithType:(NSInteger)type target:(id)target action:(SEL)action;
 @end

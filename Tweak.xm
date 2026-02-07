@@ -4,7 +4,9 @@
 #import "JJRedBagParam.h"
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
-#import <MobileCoreServices/MobileCoreServices.h>
+
+// GIF的UTI标识符（避免依赖MobileCoreServices中已废弃的kUTTypeGIF）
+#define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
@@ -1229,7 +1231,7 @@ static NSData *jj_scaleGIFImage(NSData *gifData, CGFloat scaleFactor) {
     
     NSMutableData *resultData = [NSMutableData data];
     CGImageDestinationRef destination = CGImageDestinationCreateWithData(
-        (__bridge CFMutableDataRef)resultData, kUTTypeGIF, frameCount, NULL);
+        (__bridge CFMutableDataRef)resultData, kJJUTTypeGIF, frameCount, NULL);
     if (!destination) { CFRelease(source); return nil; }
     
     // 复制GIF全局属性

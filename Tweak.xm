@@ -1153,38 +1153,60 @@ static BOOL jj_isGIFData(NSData *data) {
 static NSData *jj_getEmoticonData(CMessageWrap *msgWrap) {
     if (!msgWrap) return nil;
     
-    // 方式1：直接从消息的m_dtEmoticonData获取
-    NSData *data = msgWrap.m_dtEmoticonData;
-    if (data && data.length > 0) return data;
+    // 方式1：直接从消息的m_dtEmoticonData获取（保留原始格式）
+    @try {
+        NSData *data = msgWrap.m_dtEmoticonData;
+        if (data && [data isKindOfClass:[NSData class]] && data.length > 0) return data;
+    } @catch (NSException *e) {}
     
-    // 方式2：通过MD5从本地缓存获取
+    // 方式2：通过图片路径读取文件（保留原始格式，含GIF）
+    @try {
+        NSString *imgPath = msgWrap.m_nsImgPath;
+        if (imgPath && imgPath.length > 0) {
+            NSData *fileData = [NSData dataWithContentsOfFile:imgPath];
+            if (fileData && fileData.length > 0) return fileData;
+        }
+    } @catch (NSException *e) {}
+    
+    // 方式3：通过缩略图路径读取（保留原始格式）
+    @try {
+        NSString *thumbPath = msgWrap.m_nsThumbImgPath;
+        if (thumbPath && thumbPath.length > 0) {
+            NSData *fileData = [NSData dataWithContentsOfFile:thumbPath];
+            if (fileData && fileData.length > 0) return fileData;
+        }
+    } @catch (NSException *e) {}
+    
+    // 方式4：通过MD5从本地缓存获取
     NSString *md5 = msgWrap.m_nsEmoticonMD5;
     if (md5 && md5.length > 0) {
-        // 尝试通过CEmoticonMgr获取图片数据
         Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
         if (emoticonMgrClass) {
-            // 获取CEmoticonWrap
-            if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
-                CEmoticonWrap *wrap = [emoticonMgrClass GetEmoticonByMD5:md5];
-                if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) {
-                    return wrap.m_imageData;
+            // GetEmoticonByMD5可能返回CEmoticonWrap或UIImage
+            @try {
+                if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
+                    id result = [emoticonMgrClass GetEmoticonByMD5:md5];
+                    if ([result isKindOfClass:[UIImage class]]) {
+                        NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
+                        if (pngData && pngData.length > 0) return pngData;
+                    } else if (result && [result respondsToSelector:@selector(m_imageData)]) {
+                        NSData *imgData = [result performSelector:@selector(m_imageData)];
+                        if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0) return imgData;
+                    }
                 }
-            }
+            } @catch (NSException *e) {}
+            
+            // getEmoticonImageByMD5返回UIImage
+            @try {
+                if ([emoticonMgrClass respondsToSelector:@selector(getEmoticonImageByMD5:)]) {
+                    id result = [emoticonMgrClass getEmoticonImageByMD5:md5];
+                    if ([result isKindOfClass:[UIImage class]]) {
+                        NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
+                        if (pngData && pngData.length > 0) return pngData;
+                    }
+                }
+            } @catch (NSException *e) {}
         }
-    }
-    
-    // 方式3：通过缩略图路径读取文件
-    NSString *thumbPath = msgWrap.m_nsThumbImgPath;
-    if (thumbPath && thumbPath.length > 0) {
-        NSData *fileData = [NSData dataWithContentsOfFile:thumbPath];
-        if (fileData && fileData.length > 0) return fileData;
-    }
-    
-    // 方式4：通过图片路径读取
-    NSString *imgPath = msgWrap.m_nsImgPath;
-    if (imgPath && imgPath.length > 0) {
-        NSData *fileData = [NSData dataWithContentsOfFile:imgPath];
-        if (fileData && fileData.length > 0) return fileData;
     }
     
     return nil;

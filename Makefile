@@ -8,6 +8,6 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = JJRedBag
 JJRedBag_FILES = Tweak.xm JJRedBagManager.m JJRedBagSettingsController.m JJRedBagGroupSelectController.m JJRedBagContactSelectController.m JJRedBagMemberSelectController.m JJRedBagReceiveGroupController.m JJRedBagParam.m
 JJRedBag_CFLAGS = -fobjc-arc
-JJRedBag_FRAMEWORKS = UIKit Foundation AVFoundation CoreLocation UserNotifications
+JJRedBag_FRAMEWORKS = UIKit Foundation AVFoundation CoreLocation UserNotifications ImageIO MobileCoreServices
 
 include $(THEOS_MAKE_PATH)/tweak.mk

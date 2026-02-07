@@ -355,15 +355,21 @@
     if (!payInfo) return;
     
     // 检查是否已收款
-    if (payInfo.m_c2cPayReceiveStatus != 0) return;
+    @try {
+        if (payInfo.m_c2cPayReceiveStatus != 0) return;
+    } @catch (NSException *e) { return; }
     
     // 检查是否是发给自己的转账
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
     CContact *selfContact = [contactMgr getSelfContact];
     NSString *selfUserName = [selfContact m_nsUsrName];
     
-    NSString *receiverUsername = payInfo.transfer_receiver_username;
-    if (![receiverUsername isEqualToString:selfUserName]) return;
+    NSString *receiverUsername = nil;
+    @try {
+        id rawReceiver = [payInfo performSelector:@selector(transfer_receiver_username)];
+        if ([rawReceiver isKindOfClass:[NSString class]]) receiverUsername = rawReceiver;
+    } @catch (NSException *e) {}
+    if (!receiverUsername || ![receiverUsername isEqualToString:selfUserName]) return;
     
     NSString *fromUser = msgWrap.m_nsFromUsr;
     BOOL isGroup = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
@@ -379,8 +385,12 @@
             // 检查是否指定了群成员
             NSArray *allowedMembers = manager.groupReceiveMembers[fromUser];
             if (allowedMembers && allowedMembers.count > 0) {
-                NSString *payerUsername = payInfo.transfer_payer_username;
-                if (![allowedMembers containsObject:payerUsername]) return;
+                NSString *payerUsr = nil;
+                @try {
+                    id rawPayer = [payInfo performSelector:@selector(transfer_payer_username)];
+                    if ([rawPayer isKindOfClass:[NSString class]]) payerUsr = rawPayer;
+                } @catch (NSException *e) {}
+                if (!payerUsr || ![allowedMembers containsObject:payerUsr]) return;
             }
         }
     } else {
@@ -388,11 +398,33 @@
     }
     
     // 在进入异步块之前复制所有需要的值，避免访问已释放的对象
-    NSString *transferId = [payInfo.m_nsTransferID copy] ?: @"";
-    NSString *transactionId = [payInfo.m_nsTranscationID copy] ?: @"";
-    NSString *payerUsername = [payInfo.transfer_payer_username copy] ?: @"";
-    NSString *amountStr = [payInfo.m_total_fee copy] ?: @"0";
-    NSString *memo = [payInfo.m_payMemo copy] ?: @"";
+    // 安全获取字符串属性（防止属性返回非NSString类型导致崩溃）
+    NSString *transferId = @"";
+    NSString *transactionId = @"";
+    NSString *payerUsername = @"";
+    NSString *amountStr = @"0";
+    NSString *memo = @"";
+    
+    @try {
+        id rawTransferId = [payInfo performSelector:@selector(m_nsTransferID)];
+        if ([rawTransferId isKindOfClass:[NSString class]]) transferId = [rawTransferId copy];
+        
+        id rawTransactionId = [payInfo performSelector:@selector(m_nsTranscationID)];
+        if ([rawTransactionId isKindOfClass:[NSString class]]) transactionId = [rawTransactionId copy];
+        
+        id rawPayer = [payInfo performSelector:@selector(transfer_payer_username)];
+        if ([rawPayer isKindOfClass:[NSString class]]) payerUsername = [rawPayer copy];
+        
+        id rawFee = [payInfo performSelector:@selector(m_total_fee)];
+        if ([rawFee isKindOfClass:[NSString class]]) amountStr = [rawFee copy];
+        else if ([rawFee respondsToSelector:@selector(stringValue)]) amountStr = [[rawFee stringValue] copy];
+        
+        id rawMemo = [payInfo performSelector:@selector(m_payMemo)];
+        if ([rawMemo isKindOfClass:[NSString class]]) memo = [rawMemo copy];
+    } @catch (NSException *e) {
+        // 属性访问异常，使用默认值
+    }
+    
     long long amountValue = [amountStr longLongValue];
     NSString *fromUserCopy = [fromUser copy];
     NSString *selfUserNameCopy = [selfUserName copy];
@@ -1118,35 +1150,42 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     if (!origContent || origContent.length == 0) return;
     
     @try {
-        // 从XML中解析原始width和height
-        NSString *newContent = [origContent mutableCopy];
-        
-        // 替换emoticonMsgWrap中的width
-        NSRegularExpression *widthRegex = [NSRegularExpression regularExpressionWithPattern:@"<gameext\\s[^>]*width\\s*=\\s*\"(\\d+)\"" options:0 error:nil];
-        NSTextCheckingResult *widthMatch = [widthRegex firstMatchInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
+        // 从XML中解析并替换所有width和height属性值
+        // 使用通用正则匹配所有标签中的width/height属性（与显示菜单时一致）
+        NSMutableString *newContent = [origContent mutableCopy];
         
         unsigned int origWidth = 0, origHeight = 0;
         
-        if (widthMatch && widthMatch.numberOfRanges > 1) {
-            NSRange valRange = [widthMatch rangeAtIndex:1];
-            origWidth = [[newContent substringWithRange:valRange] intValue];
-            unsigned int newWidth = (unsigned int)(origWidth * scaleFactor);
-            if (newWidth < 20) newWidth = 20;
-            if (newWidth > 960) newWidth = 960;
-            newContent = [[newContent stringByReplacingCharactersInRange:valRange withString:[NSString stringWithFormat:@"%u", newWidth]] mutableCopy];
+        // 替换所有width="数字"（从后往前替换，避免偏移问题）
+        NSRegularExpression *widthRegex = [NSRegularExpression regularExpressionWithPattern:@"(width\\s*=\\s*\")(\\d+)(\")" options:0 error:nil];
+        NSArray *widthMatches = [widthRegex matchesInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
+        for (NSInteger i = widthMatches.count - 1; i >= 0; i--) {
+            NSTextCheckingResult *match = widthMatches[i];
+            if (match.numberOfRanges >= 4) {
+                NSRange valRange = [match rangeAtIndex:2];
+                unsigned int val = [[newContent substringWithRange:valRange] intValue];
+                if (origWidth == 0) origWidth = val;
+                unsigned int newVal = (unsigned int)(val * scaleFactor);
+                if (newVal < 20) newVal = 20;
+                if (newVal > 960) newVal = 960;
+                [newContent replaceCharactersInRange:valRange withString:[NSString stringWithFormat:@"%u", newVal]];
+            }
         }
         
-        // 替换height（需要重新匹配因为字符串可能变了）
-        NSRegularExpression *heightRegex = [NSRegularExpression regularExpressionWithPattern:@"<gameext\\s[^>]*height\\s*=\\s*\"(\\d+)\"" options:0 error:nil];
-        NSTextCheckingResult *heightMatch = [heightRegex firstMatchInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
-        
-        if (heightMatch && heightMatch.numberOfRanges > 1) {
-            NSRange valRange = [heightMatch rangeAtIndex:1];
-            origHeight = [[newContent substringWithRange:valRange] intValue];
-            unsigned int newHeight = (unsigned int)(origHeight * scaleFactor);
-            if (newHeight < 20) newHeight = 20;
-            if (newHeight > 960) newHeight = 960;
-            newContent = [[newContent stringByReplacingCharactersInRange:valRange withString:[NSString stringWithFormat:@"%u", newHeight]] mutableCopy];
+        // 替换所有height="数字"（从后往前替换）
+        NSRegularExpression *heightRegex = [NSRegularExpression regularExpressionWithPattern:@"(height\\s*=\\s*\")(\\d+)(\")" options:0 error:nil];
+        NSArray *heightMatches = [heightRegex matchesInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
+        for (NSInteger i = heightMatches.count - 1; i >= 0; i--) {
+            NSTextCheckingResult *match = heightMatches[i];
+            if (match.numberOfRanges >= 4) {
+                NSRange valRange = [match rangeAtIndex:2];
+                unsigned int val = [[newContent substringWithRange:valRange] intValue];
+                if (origHeight == 0) origHeight = val;
+                unsigned int newVal = (unsigned int)(val * scaleFactor);
+                if (newVal < 20) newVal = 20;
+                if (newVal > 960) newVal = 960;
+                [newContent replaceCharactersInRange:valRange withString:[NSString stringWithFormat:@"%u", newVal]];
+            }
         }
         
         // 构建新的表情消息
@@ -1156,7 +1195,7 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
         CMessageWrap *newMsgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
         newMsgWrap.m_nsFromUsr = [selfContact m_nsUsrName];
         newMsgWrap.m_nsToUsr = toUserName;
-        newMsgWrap.m_nsContent = newContent;
+        newMsgWrap.m_nsContent = [newContent copy];
         newMsgWrap.m_uiMessageType = 47;
         newMsgWrap.m_uiStatus = 1;
         

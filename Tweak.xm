@@ -1140,17 +1140,44 @@ static NSString *jj_getChatUserNameFromResponderChain(UIView *fromView) {
 }
 
 
-// 判断NSData是否为GIF格式（通过文件头魔数判断，最可靠）
+// 判断NSData是否为GIF格式（通过文件头魔数判断）
 static BOOL jj_isGIFData(NSData *data) {
     if (!data || data.length < 6) return NO;
     const unsigned char *bytes = (const unsigned char *)data.bytes;
-    // GIF文件头: "GIF87a" 或 "GIF89a"
     return (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 &&
             bytes[3] == 0x38 && (bytes[4] == 0x37 || bytes[4] == 0x39) && bytes[5] == 0x61);
 }
 
-// 获取表情包的原始图片数据
-static NSData *jj_getEmoticonData(CMessageWrap *msgWrap) {
+// 综合判断表情是否为GIF（结合XML属性 + 文件数据 + 多帧检测）
+static BOOL jj_isEmoticonGIF(CMessageWrap *msgWrap, NSData *rawData) {
+    // 1. 如果有原始数据，先用文件头魔数判断（最可靠）
+    if (rawData && rawData.length > 6) {
+        if (jj_isGIFData(rawData)) return YES;
+        // 用ImageIO检测帧数（多帧=动图）
+        CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)rawData, NULL);
+        if (src) {
+            size_t count = CGImageSourceGetCount(src);
+            CFRelease(src);
+            if (count > 1) return YES;
+        }
+    }
+    
+    // 2. 从XML内容判断
+    NSString *content = msgWrap.m_nsContent;
+    if (content && content.length > 0) {
+        // type="2" 表示GIF类型
+        if ([content rangeOfString:@"type=\"2\""].location != NSNotFound) return YES;
+        // cdnurl中包含.gif
+        if ([content rangeOfString:@".gif"].location != NSNotFound) return YES;
+        // emoticonType=2
+        if ([content rangeOfString:@"emoticonType=\"2\""].location != NSNotFound) return YES;
+    }
+    
+    return NO;
+}
+
+// 获取表情包的原始图片数据（isGIF参数指示是否需要保留GIF格式）
+static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
     if (!msgWrap) return nil;
     
     // 方式1：直接从消息的m_dtEmoticonData获取（保留原始格式）
@@ -1182,13 +1209,15 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap) {
     if (md5 && md5.length > 0) {
         Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
         if (emoticonMgrClass) {
-            // GetEmoticonByMD5可能返回CEmoticonWrap或UIImage
             @try {
                 if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
                     id result = [emoticonMgrClass GetEmoticonByMD5:md5];
                     if ([result isKindOfClass:[UIImage class]]) {
-                        NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
-                        if (pngData && pngData.length > 0) return pngData;
+                        // 如果需要GIF格式但拿到的是UIImage，跳过（UIImage会丢失GIF动画）
+                        if (!needGIF) {
+                            NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
+                            if (pngData && pngData.length > 0) return pngData;
+                        }
                     } else if (result && [result respondsToSelector:@selector(m_imageData)]) {
                         NSData *imgData = [result performSelector:@selector(m_imageData)];
                         if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0) return imgData;
@@ -1196,10 +1225,25 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap) {
                 }
             } @catch (NSException *e) {}
             
-            // getEmoticonImageByMD5返回UIImage
             @try {
                 if ([emoticonMgrClass respondsToSelector:@selector(getEmoticonImageByMD5:)]) {
                     id result = [emoticonMgrClass getEmoticonImageByMD5:md5];
+                    if ([result isKindOfClass:[UIImage class]] && !needGIF) {
+                        NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
+                        if (pngData && pngData.length > 0) return pngData;
+                    }
+                }
+            } @catch (NSException *e) {}
+        }
+    }
+    
+    // 方式5（最后兜底）：如果是GIF但前面都没拿到，用UIImage兜底总比没有好
+    if (needGIF && md5 && md5.length > 0) {
+        Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
+        if (emoticonMgrClass) {
+            @try {
+                if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
+                    id result = [emoticonMgrClass GetEmoticonByMD5:md5];
                     if ([result isKindOfClass:[UIImage class]]) {
                         NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
                         if (pngData && pngData.length > 0) return pngData;
@@ -1317,12 +1361,18 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     if (!toUserName || toUserName.length == 0 || !origMsgWrap) return;
     
     @try {
-        // 获取原始表情图片数据
-        NSData *origData = jj_getEmoticonData(origMsgWrap);
+        // 先用XML判断是否GIF（不依赖数据）
+        BOOL isGIF = jj_isEmoticonGIF(origMsgWrap, nil);
+        
+        // 获取原始表情图片数据（告知是否需要保留GIF格式）
+        NSData *origData = jj_getEmoticonData(origMsgWrap, isGIF);
         if (!origData || origData.length == 0) return;
         
-        // 根据实际数据格式判断是否GIF，并进行对应缩放
-        BOOL isGIF = jj_isGIFData(origData);
+        // 再用实际数据二次确认（可能XML判断不准，数据判断更准）
+        if (!isGIF) {
+            isGIF = jj_isEmoticonGIF(origMsgWrap, origData);
+        }
+        
         NSData *scaledData = nil;
         
         if (isGIF) {
@@ -1407,20 +1457,9 @@ static void jj_showScaleActionSheet(void) {
         if (hm && hm.numberOfRanges > 1) origHeight = [[content substringWithRange:[hm rangeAtIndex:1]] intValue];
     }
     
-    // 从实际图片数据判断类型（最可靠），XML作为备用
-    NSData *emoticonData = jj_getEmoticonData(msgWrap);
-    BOOL isGIF = NO;
-    
-    if (emoticonData && emoticonData.length > 0) {
-        // 通过文件头魔数判断，最准确
-        isGIF = jj_isGIFData(emoticonData);
-    } else if (content) {
-        // 无法获取数据时，用XML作为备用判断
-        if ([content rangeOfString:@"type=\"2\""].location != NSNotFound ||
-            [content rangeOfString:@".gif"].location != NSNotFound) {
-            isGIF = YES;
-        }
-    }
+    // 综合判断是否GIF（XML + 数据魔数 + 帧数检测）
+    NSData *emoticonData = jj_getEmoticonData(msgWrap, NO);
+    BOOL isGIF = jj_isEmoticonGIF(msgWrap, emoticonData);
     
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;

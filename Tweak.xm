@@ -1176,7 +1176,7 @@ static BOOL jj_isEmoticonGIF(CMessageWrap *msgWrap, NSData *rawData) {
     return NO;
 }
 
-// 获取表情包的原始图片数据（isGIF参数指示是否需要保留GIF格式）
+// 获取表情包的原始图片数据（needGIF指示是否需要保留GIF格式）
 static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
     if (!msgWrap) return nil;
     
@@ -1186,7 +1186,36 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
         if (data && [data isKindOfClass:[NSData class]] && data.length > 0) return data;
     } @catch (NSException *e) {}
     
-    // 方式2：通过图片路径读取文件（保留原始格式，含GIF）
+    // 方式2：通过MD5在微信表情缓存目录中查找原始文件
+    NSString *md5 = msgWrap.m_nsEmoticonMD5;
+    if (md5 && md5.length > 0) {
+        NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        // 微信表情缓存的常见目录结构
+        NSArray *searchPaths = @[
+            [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@", md5]],
+            [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@.gif", md5]],
+            [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@/Emoticon/%@", docPath, md5]],
+            [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@", md5]],
+            [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@.gif", md5]],
+        ];
+        // 也搜索Library/Caches下
+        NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+        searchPaths = [searchPaths arrayByAddingObjectsFromArray:@[
+            [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@", md5]],
+            [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@.gif", md5]],
+            [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"emoticonTmp/%@", md5]],
+            [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"emoticonTmp/%@.gif", md5]],
+        ]];
+        
+        for (NSString *path in searchPaths) {
+            @try {
+                NSData *fileData = [NSData dataWithContentsOfFile:path];
+                if (fileData && fileData.length > 0) return fileData;
+            } @catch (NSException *e) {}
+        }
+    }
+    
+    // 方式3：通过图片路径读取文件
     @try {
         NSString *imgPath = msgWrap.m_nsImgPath;
         if (imgPath && imgPath.length > 0) {
@@ -1195,7 +1224,7 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
         }
     } @catch (NSException *e) {}
     
-    // 方式3：通过缩略图路径读取（保留原始格式）
+    // 方式4：通过缩略图路径读取
     @try {
         NSString *thumbPath = msgWrap.m_nsThumbImgPath;
         if (thumbPath && thumbPath.length > 0) {
@@ -1204,8 +1233,7 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
         }
     } @catch (NSException *e) {}
     
-    // 方式4：通过MD5从本地缓存获取
-    NSString *md5 = msgWrap.m_nsEmoticonMD5;
+    // 方式5：通过CEmoticonMgr获取
     if (md5 && md5.length > 0) {
         Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
         if (emoticonMgrClass) {
@@ -1213,7 +1241,6 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
                 if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
                     id result = [emoticonMgrClass GetEmoticonByMD5:md5];
                     if ([result isKindOfClass:[UIImage class]]) {
-                        // 如果需要GIF格式但拿到的是UIImage，跳过（UIImage会丢失GIF动画）
                         if (!needGIF) {
                             NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
                             if (pngData && pngData.length > 0) return pngData;
@@ -1237,7 +1264,7 @@ static NSData *jj_getEmoticonData(CMessageWrap *msgWrap, BOOL needGIF) {
         }
     }
     
-    // 方式5（最后兜底）：如果是GIF但前面都没拿到，用UIImage兜底总比没有好
+    // 方式6（最后兜底）：GIF也用UIImage，总比没有好
     if (needGIF && md5 && md5.length > 0) {
         Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
         if (emoticonMgrClass) {
@@ -1353,7 +1380,8 @@ static NSData *jj_scaleGIFImage(NSData *gifData, CGFloat scaleFactor) {
 }
 
 // 缩放并发送表情包到当前聊天
-// 真正的像素级缩放：获取原始图片数据 -> 缩放图片 -> 作为新表情发送
+// 静态图：像素级缩放后发送新图片
+// GIF动图：修改XML中的width/height参数，通过原生机制发送（保留动画）
 static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     NSString *toUserName = [jj_currentChatUserName copy];
     CMessageWrap *origMsgWrap = jj_currentEmoticonMsgWrap;
@@ -1361,69 +1389,137 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     if (!toUserName || toUserName.length == 0 || !origMsgWrap) return;
     
     @try {
-        // 先用XML判断是否GIF（不依赖数据）
+        // 先判断是否GIF
         BOOL isGIF = jj_isEmoticonGIF(origMsgWrap, nil);
         
-        // 获取原始表情图片数据（告知是否需要保留GIF格式）
+        // 获取数据尝试二次确认
         NSData *origData = jj_getEmoticonData(origMsgWrap, isGIF);
-        if (!origData || origData.length == 0) return;
-        
-        // 再用实际数据二次确认（可能XML判断不准，数据判断更准）
-        if (!isGIF) {
+        if (origData && origData.length > 0 && !isGIF) {
             isGIF = jj_isEmoticonGIF(origMsgWrap, origData);
         }
         
-        NSData *scaledData = nil;
-        
-        if (isGIF) {
-            scaledData = jj_scaleGIFImage(origData, scaleFactor);
-        } else {
-            scaledData = jj_scaleStaticImage(origData, scaleFactor);
-        }
-        
-        if (!scaledData || scaledData.length == 0) return;
-        
-        // 通过微信原生接口，用缩放后的图片数据创建表情消息并发送
-        Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
         CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
         if (!msgMgr) return;
         
-        BOOL sent = NO;
+        BOOL useXMLFallback = NO;
         
-        // 方式1：使用emoticonMsgForImageData创建消息
-        if (!sent && emoticonMgrClass && [emoticonMgrClass respondsToSelector:@selector(emoticonMsgForImageData:errorMsg:)]) {
-            NSString *errorMsg = nil;
-            CMessageWrap *newMsgWrap = [emoticonMgrClass emoticonMsgForImageData:scaledData errorMsg:&errorMsg];
-            if (newMsgWrap) {
-                newMsgWrap.m_nsToUsr = toUserName;
-                CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-                CContact *selfContact = [contactMgr getSelfContact];
-                newMsgWrap.m_nsFromUsr = [selfContact m_nsUsrName];
-                [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
-                sent = YES;
+        if (isGIF && origData && jj_isGIFData(origData)) {
+            // GIF且拿到了原始GIF数据 -> 逐帧缩放
+            NSData *scaledData = jj_scaleGIFImage(origData, scaleFactor);
+            if (scaledData && scaledData.length > 0) {
+                BOOL sent = NO;
+                Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
+                if (emoticonMgrClass && [emoticonMgrClass respondsToSelector:@selector(emoticonMsgForImageData:errorMsg:)]) {
+                    NSString *errorMsg = nil;
+                    CMessageWrap *newMsgWrap = [emoticonMgrClass emoticonMsgForImageData:scaledData errorMsg:&errorMsg];
+                    if (newMsgWrap) {
+                        newMsgWrap.m_nsToUsr = toUserName;
+                        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+                        newMsgWrap.m_nsFromUsr = [[contactMgr getSelfContact] m_nsUsrName];
+                        [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+                        sent = YES;
+                    }
+                }
+                if (!sent) {
+                    CMessageWrap *newMsgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
+                    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+                    newMsgWrap.m_nsFromUsr = [[contactMgr getSelfContact] m_nsUsrName];
+                    newMsgWrap.m_nsToUsr = toUserName;
+                    newMsgWrap.m_uiMessageType = 47;
+                    newMsgWrap.m_uiStatus = 1;
+                    newMsgWrap.m_dtEmoticonData = scaledData;
+                    newMsgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                    newMsgWrap.m_uiMesLocalID = newMsgWrap.m_uiCreateTime;
+                    [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+                }
+            } else {
+                useXMLFallback = YES;
             }
+        } else if (isGIF) {
+            useXMLFallback = YES;
         }
         
-        // 方式2：手动构建表情消息
-        if (!sent) {
+        if (useXMLFallback) {
+            // GIF但没拿到原始GIF数据或缩放失败 -> 用XML方案修改尺寸（保留动画）
+            NSString *origContent = origMsgWrap.m_nsContent;
+            if (!origContent || origContent.length == 0) return;
+            
+            NSMutableString *newContent = [origContent mutableCopy];
+            
+            // 替换所有width="数字"（从后往前替换）
+            NSRegularExpression *widthRegex = [NSRegularExpression regularExpressionWithPattern:@"(width\\s*=\\s*\")(\\d+)(\")" options:0 error:nil];
+            NSArray *widthMatches = [widthRegex matchesInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
+            for (NSInteger i = widthMatches.count - 1; i >= 0; i--) {
+                NSTextCheckingResult *match = widthMatches[i];
+                if (match.numberOfRanges >= 4) {
+                    NSRange valRange = [match rangeAtIndex:2];
+                    unsigned int val = [[newContent substringWithRange:valRange] intValue];
+                    unsigned int newVal = (unsigned int)(val * scaleFactor);
+                    if (newVal < 20) newVal = 20;
+                    if (newVal > 960) newVal = 960;
+                    [newContent replaceCharactersInRange:valRange withString:[NSString stringWithFormat:@"%u", newVal]];
+                }
+            }
+            
+            // 替换所有height="数字"（从后往前替换）
+            NSRegularExpression *heightRegex = [NSRegularExpression regularExpressionWithPattern:@"(height\\s*=\\s*\")(\\d+)(\")" options:0 error:nil];
+            NSArray *heightMatches = [heightRegex matchesInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
+            for (NSInteger i = heightMatches.count - 1; i >= 0; i--) {
+                NSTextCheckingResult *match = heightMatches[i];
+                if (match.numberOfRanges >= 4) {
+                    NSRange valRange = [match rangeAtIndex:2];
+                    unsigned int val = [[newContent substringWithRange:valRange] intValue];
+                    unsigned int newVal = (unsigned int)(val * scaleFactor);
+                    if (newVal < 20) newVal = 20;
+                    if (newVal > 960) newVal = 960;
+                    [newContent replaceCharactersInRange:valRange withString:[NSString stringWithFormat:@"%u", newVal]];
+                }
+            }
+            
             CMessageWrap *newMsgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
             CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-            CContact *selfContact = [contactMgr getSelfContact];
-            newMsgWrap.m_nsFromUsr = [selfContact m_nsUsrName];
+            newMsgWrap.m_nsFromUsr = [[contactMgr getSelfContact] m_nsUsrName];
             newMsgWrap.m_nsToUsr = toUserName;
+            newMsgWrap.m_nsContent = [newContent copy];
             newMsgWrap.m_uiMessageType = 47;
             newMsgWrap.m_uiStatus = 1;
-            newMsgWrap.m_dtEmoticonData = scaledData;
-            
-            MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
-            if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
-                newMsgWrap.m_uiCreateTime = [sessionMgr GenSendMsgTime];
-            } else {
-                newMsgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-            }
+            newMsgWrap.m_nsEmoticonMD5 = origMsgWrap.m_nsEmoticonMD5;
+            newMsgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
             newMsgWrap.m_uiMesLocalID = newMsgWrap.m_uiCreateTime;
-            
             [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+        }
+        
+        if (!isGIF) {
+            // 静态图 -> 像素级缩放
+            if (!origData || origData.length == 0) return;
+            NSData *scaledData = jj_scaleStaticImage(origData, scaleFactor);
+            if (!scaledData || scaledData.length == 0) return;
+            
+            BOOL sent = NO;
+            Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
+            if (emoticonMgrClass && [emoticonMgrClass respondsToSelector:@selector(emoticonMsgForImageData:errorMsg:)]) {
+                NSString *errorMsg = nil;
+                CMessageWrap *newMsgWrap = [emoticonMgrClass emoticonMsgForImageData:scaledData errorMsg:&errorMsg];
+                if (newMsgWrap) {
+                    newMsgWrap.m_nsToUsr = toUserName;
+                    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+                    newMsgWrap.m_nsFromUsr = [[contactMgr getSelfContact] m_nsUsrName];
+                    [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+                    sent = YES;
+                }
+            }
+            if (!sent) {
+                CMessageWrap *newMsgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
+                CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+                newMsgWrap.m_nsFromUsr = [[contactMgr getSelfContact] m_nsUsrName];
+                newMsgWrap.m_nsToUsr = toUserName;
+                newMsgWrap.m_uiMessageType = 47;
+                newMsgWrap.m_uiStatus = 1;
+                newMsgWrap.m_dtEmoticonData = scaledData;
+                newMsgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newMsgWrap.m_uiMesLocalID = newMsgWrap.m_uiCreateTime;
+                [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+            }
         }
     } @catch (NSException *exception) {
         // 静默处理

@@ -1626,8 +1626,8 @@ static void jj_showScaleActionSheet(void) {
         if (imgSrc) {
             CFDictionaryRef props = CGImageSourceCopyPropertiesAtIndex(imgSrc, 0, NULL);
             if (props) {
-                CFNumberRef w = CFDictionaryGetValue(props, kCGImagePropertyPixelWidth);
-                CFNumberRef h = CFDictionaryGetValue(props, kCGImagePropertyPixelHeight);
+                CFNumberRef w = (CFNumberRef)CFDictionaryGetValue(props, kCGImagePropertyPixelWidth);
+                CFNumberRef h = (CFNumberRef)CFDictionaryGetValue(props, kCGImagePropertyPixelHeight);
                 if (w) CFNumberGetValue(w, kCFNumberIntType, &realWidth);
                 if (h) CFNumberGetValue(h, kCFNumberIntType, &realHeight);
                 CFRelease(props);

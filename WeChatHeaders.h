@@ -222,6 +222,7 @@
 - (void)onLongTouch;
 - (struct CGRect)showRectForMenuController;
 - (id)getViewController;
+- (id)getMsgCmessageWrap;
 @end
 
 @interface CommonMessageViewModel : NSObject
@@ -261,10 +262,18 @@
 @end
 
 @interface CEmoticonMgr : NSObject
+// 类方法
 + (id)GetEmoticonByMD5:(id)md5;
-+ (id)getEmoticonImageByMD5:(id)md5;
++ (id)IsEmoticonImageExist:(id)md5;
 + (id)emoticonMsgForImageData:(id)data errorMsg:(id *)errorMsg;
-+ (id)genEmoticonMsgForEmoticonWrap:(id)wrap imageData:(id)data;
++ (id)emoticonMsgForEmoticonWrap:(id)wrap imageData:(id)data errorMsg:(id *)errorMsg;
+// 实例方法（通过MMServiceCenter获取实例）
+- (id)getEmoticonWrapByMd5:(id)md5;
+- (id)emoticonDataDB;
+- (void)addRecordWithMessageWrap:(id)msgWrap;
+- (id)checkAndSaveEmoticon:(id)data addEmotionWrap:(id)wrap;
+- (id)AddEmoticonWithData:(id)data addEmoticonWrap:(id)wrap extFlag:(unsigned int)flag index:(id)index isSilently:(BOOL)silently;
+- (id)AddCustomEmoticonWithData:(id)data addEmoticonWrap:(id)wrap isSilently:(BOOL)silently;
 @end
 
 @interface MMMenuController : UIViewController

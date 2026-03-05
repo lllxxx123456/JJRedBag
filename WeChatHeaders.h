@@ -37,12 +37,31 @@
 @property (nonatomic, copy) NSString *m_nsTransferID;
 @property (nonatomic, copy) NSString *m_nsTranscationID;
 @property (nonatomic, copy) NSString *m_total_fee;
+@property (nonatomic, copy) NSString *m_fee_type;
 @property (nonatomic, copy) NSString *transfer_payer_username;
 @property (nonatomic, copy) NSString *transfer_receiver_username;
+@property (nonatomic, copy) NSString *exclusive_recv_username;
+@property (nonatomic, copy) NSString *transfer_attach;
+@property (nonatomic, copy) NSString *routeInfo;
+@property (nonatomic, assign) unsigned int has_transfer_address;
 @property (nonatomic, assign) unsigned int m_c2cPayReceiveStatus;
+@property (nonatomic, assign) unsigned int m_c2cPayBubbleType;
+@property (nonatomic, assign) int bubble_click_flag;
 @property (nonatomic, assign) unsigned int m_uiInvalidTime;
 @property (nonatomic, assign) unsigned int m_uiBeginTransferTime;
+@property (nonatomic, assign) unsigned int m_uiEffectiveDate;
+@property (nonatomic, assign) unsigned int m_templateID;
+@property (nonatomic, assign) unsigned int m_sceneId;
+@property (nonatomic, assign) unsigned int m_c2c_msg_subtype;
 @property (nonatomic, copy) NSString *m_payMemo;
+@property (nonatomic, copy) NSString *m_nsPayMsgID;
+@property (nonatomic, copy) NSString *m_receiverTitle;
+@property (nonatomic, copy) NSString *m_senderTitle;
+@property (nonatomic, copy) NSString *m_hintText;
+@property (nonatomic, copy) NSString *m_receiverDesc;
+@property (nonatomic, copy) NSString *m_senderDesc;
+@property (nonatomic, copy) NSString *m_c2cUrl;
+@property (nonatomic, copy) NSString *m_c2cIconUrl;
 @end
 
 @interface CMessageWrap : NSObject

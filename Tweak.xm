@@ -1,4 +1,4 @@
-#import "WeChatHeaders.h"
+﻿#import "WeChatHeaders.h"
 #import "JJRedBagManager.h"
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagParam.h"
@@ -100,22 +100,28 @@
     // 获取支付信息
     WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
     
-    // 检查是否为红包消息 - 检查wxpay://
-    if ([content rangeOfString:@"wxpay://"].location != NSNotFound) {
-        [self jj_processRedBagMessage:msgWrap];
+    // Transfer check first (before hongbao to avoid misrouting)
+    BOOL isTransferMsg = NO;
+    if (payInfo) {
+        @try {
+            BOOL hasTransferId = (payInfo.m_nsTransferID.length > 0);
+            BOOL subTypeMatch = (payInfo.m_uiPaySubType == 1);
+            BOOL contentMatch = ([content rangeOfString:@"transferconfirm"].location != NSNotFound) ||
+                                ([content rangeOfString:@"c2c_transfer"].location != NSNotFound) ||
+                                ([content rangeOfString:@"wcpay://c2cbizmessagehandler"].location != NSNotFound);
+            isTransferMsg = hasTransferId && (subTypeMatch || contentMatch);
+        } @catch (NSException *e) {}
+    }
+    
+    if (isTransferMsg) {
+        [self jj_processTransferMessage:msgWrap];
         return;
     }
     
-    // 检查是否为转账消息 (m_uiPaySubType: 1=转账, 3=红包等)
-    // 同时检查content中是否包含转账相关标识
-    if (payInfo) {
-        // 转账消息通常m_uiPaySubType为1，或者content中包含wcpay://c2cbizmessagehandler/transferconfirm
-        BOOL isTransfer = (payInfo.m_uiPaySubType == 1) || 
-                          ([content rangeOfString:@"transferconfirm"].location != NSNotFound) ||
-                          ([content rangeOfString:@"c2c_transfer"].location != NSNotFound);
-        if (isTransfer && payInfo.m_nsTransferID.length > 0) {
-            [self jj_processTransferMessage:msgWrap];
-        }
+    // Hongbao check
+    if ([content rangeOfString:@"wxpay://"].location != NSNotFound) {
+        [self jj_processRedBagMessage:msgWrap];
+        return;
     }
 }
 
@@ -372,6 +378,12 @@
         id rawReceiver = [payInfo performSelector:@selector(transfer_receiver_username)];
         if ([rawReceiver isKindOfClass:[NSString class]]) receiverUsername = rawReceiver;
     } @catch (NSException *e) {}
+    if (!receiverUsername || receiverUsername.length == 0) {
+        @try {
+            id rawExclusive = [payInfo performSelector:@selector(exclusive_recv_username)];
+            if ([rawExclusive isKindOfClass:[NSString class]] && [rawExclusive length] > 0) receiverUsername = rawExclusive;
+        } @catch (NSException *e) {}
+    }
     if (!receiverUsername || ![receiverUsername isEqualToString:selfUserName]) return;
     
     NSString *fromUser = msgWrap.m_nsFromUsr;
@@ -453,6 +465,18 @@
                 // 使用ConfirmTransferMoney确认收款
                 // 8.0.66的参数格式需要包含完整的转账信息
                 @try {
+                    // CheckTransferMoneyStatus first
+                    NSMutableDictionary *checkParams = [NSMutableDictionary dictionary];
+                    checkParams[@"transfer_id"] = transferId;
+                    checkParams[@"transaction_id"] = transactionId;
+                    checkParams[@"receiver_username"] = selfUserNameCopy;
+                    checkParams[@"payer_username"] = payerUsername;
+                    
+                    if ([payLogicMgr respondsToSelector:@selector(CheckTransferMoneyStatus:)]) {
+                        @try { [payLogicMgr CheckTransferMoneyStatus:checkParams]; } @catch (NSException *e) {}
+                    }
+                    
+                    // ConfirmTransferMoney
                     NSMutableDictionary *innerParams = [NSMutableDictionary dictionary];
                     innerParams[@"invalidtime"] = [NSString stringWithFormat:@"%u", invalidTime];
                     innerParams[@"begintransfertime"] = [NSString stringWithFormat:@"%u", beginTransferTime];
@@ -462,6 +486,7 @@
                     innerParams[@"scene"] = @"32";
                     innerParams[@"receiver_username"] = selfUserNameCopy;
                     innerParams[@"payer_username"] = payerUsername;
+                    innerParams[@"fee"] = amountStr;
                     
                     if ([payLogicMgr respondsToSelector:@selector(ConfirmTransferMoney:)]) {
                         [payLogicMgr ConfirmTransferMoney:innerParams];
@@ -595,9 +620,10 @@
                         }
                     }
                     
-                    [alert addAction:[UIAlertAction actionWithTitle:@"随机(不作弊)" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+                    [alert addAction:[UIAlertAction actionWithTitle:@"随机(不作弊)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
                         %orig(msg, msgWrap);
                     }]];
+                    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
                     
                     UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
                     while (topVC.presentedViewController) topVC = topVC.presentedViewController;

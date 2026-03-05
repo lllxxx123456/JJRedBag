@@ -1,4 +1,4 @@
-﻿#import "WeChatHeaders.h"
+#import "WeChatHeaders.h"
 #import "JJRedBagManager.h"
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagParam.h"

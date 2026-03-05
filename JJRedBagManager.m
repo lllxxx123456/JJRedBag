@@ -65,6 +65,21 @@
         
         // 表情包缩放默认设置
         _emoticonScaleEnabled = NO;
+        
+        // 界面优化默认设置
+        _hideVoiceSearchButton = NO;
+        _hideLastGroupLabel = NO;
+        _hasShownHideVoiceAlert = NO;
+        _hasShownHideGroupAlert = NO;
+        
+        // 小游戏作弊默认设置
+        _gameCheatEnabled = NO;
+        _gameCheatMode = 0;
+        _gameCheatDiceSequence = @"";
+        _gameCheatRPSSequence = @"";
+        _gameCheatDiceIndex = 0;
+        _gameCheatRPSIndex = 0;
+        _hasShownGameCheatAlert = NO;
     }
     return self;
 }
@@ -118,6 +133,21 @@
     
     // 表情包缩放
     settings[@"emoticonScaleEnabled"] = @(self.emoticonScaleEnabled);
+    
+    // 界面优化
+    settings[@"hideVoiceSearchButton"] = @(self.hideVoiceSearchButton);
+    settings[@"hideLastGroupLabel"] = @(self.hideLastGroupLabel);
+    settings[@"hasShownHideVoiceAlert"] = @(self.hasShownHideVoiceAlert);
+    settings[@"hasShownHideGroupAlert"] = @(self.hasShownHideGroupAlert);
+    
+    // 小游戏作弊
+    settings[@"gameCheatEnabled"] = @(self.gameCheatEnabled);
+    settings[@"gameCheatMode"] = @(self.gameCheatMode);
+    settings[@"gameCheatDiceSequence"] = self.gameCheatDiceSequence ?: @"";
+    settings[@"gameCheatRPSSequence"] = self.gameCheatRPSSequence ?: @"";
+    settings[@"gameCheatDiceIndex"] = @(self.gameCheatDiceIndex);
+    settings[@"gameCheatRPSIndex"] = @(self.gameCheatRPSIndex);
+    settings[@"hasShownGameCheatAlert"] = @(self.hasShownGameCheatAlert);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -176,6 +206,21 @@
         
         // 表情包缩放
         self.emoticonScaleEnabled = [settings[@"emoticonScaleEnabled"] boolValue];
+        
+        // 界面优化
+        self.hideVoiceSearchButton = [settings[@"hideVoiceSearchButton"] boolValue];
+        self.hideLastGroupLabel = [settings[@"hideLastGroupLabel"] boolValue];
+        self.hasShownHideVoiceAlert = [settings[@"hasShownHideVoiceAlert"] boolValue];
+        self.hasShownHideGroupAlert = [settings[@"hasShownHideGroupAlert"] boolValue];
+        
+        // 小游戏作弊
+        self.gameCheatEnabled = [settings[@"gameCheatEnabled"] boolValue];
+        self.gameCheatMode = [settings[@"gameCheatMode"] integerValue];
+        self.gameCheatDiceSequence = settings[@"gameCheatDiceSequence"] ?: @"";
+        self.gameCheatRPSSequence = settings[@"gameCheatRPSSequence"] ?: @"";
+        self.gameCheatDiceIndex = [settings[@"gameCheatDiceIndex"] integerValue];
+        self.gameCheatRPSIndex = [settings[@"gameCheatRPSIndex"] integerValue];
+        self.hasShownGameCheatAlert = [settings[@"hasShownGameCheatAlert"] boolValue];
     }
 }
 

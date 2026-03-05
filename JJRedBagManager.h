@@ -79,6 +79,21 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 // ========== 表情包缩放功能 ==========
 @property (nonatomic, assign) BOOL emoticonScaleEnabled;            // 表情包缩放功能开关
 
+// ========== 界面优化功能 ==========
+@property (nonatomic, assign) BOOL hideVoiceSearchButton;           // 隐藏语音搜索按钮
+@property (nonatomic, assign) BOOL hideLastGroupLabel;              // 隐藏上次分组标签
+@property (nonatomic, assign) BOOL hasShownHideVoiceAlert;          // 是否已显示隐藏语音搜索说明
+@property (nonatomic, assign) BOOL hasShownHideGroupAlert;          // 是否已显示隐藏上次分组说明
+
+// ========== 小游戏作弊功能 ==========
+@property (nonatomic, assign) BOOL gameCheatEnabled;                // 小游戏作弊开关
+@property (nonatomic, assign) NSInteger gameCheatMode;              // 0=模式1(发送时选择), 1=模式2(预设序列)
+@property (nonatomic, copy) NSString *gameCheatDiceSequence;        // 骰子预设序列(如"223"表示依次2,2,3)
+@property (nonatomic, copy) NSString *gameCheatRPSSequence;         // 猜拳预设序列(1=剪刀,2=石头,3=布,如"132")
+@property (nonatomic, assign) NSInteger gameCheatDiceIndex;         // 骰子当前序列位置
+@property (nonatomic, assign) NSInteger gameCheatRPSIndex;          // 猜拳当前序列位置
+@property (nonatomic, assign) BOOL hasShownGameCheatAlert;          // 是否已显示游戏作弊说明
+
 + (instancetype)sharedManager;
 
 - (void)saveSettings;

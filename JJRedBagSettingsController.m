@@ -124,7 +124,7 @@
 #pragma mark - TableView DataSource
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 7;
+    return 9;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -190,7 +190,22 @@
     
     // Section 6: 表情包缩放
     if (section == 6) {
-        return 1; // 开关
+        JJRedBagManager *mgr = [JJRedBagManager sharedManager];
+        if (mgr.emoticonScaleEnabled) {
+            return 2; // 开关 + 缓存管理
+        }
+        return 1; // 仅开关
+    }
+    
+    // Section 7: 界面优化
+    if (section == 7) return 2;
+    
+    // Section 8: 小游戏作弊
+    if (section == 8) {
+        JJRedBagManager *mgr = [JJRedBagManager sharedManager];
+        if (!mgr.gameCheatEnabled) return 1;
+        if (mgr.gameCheatMode == 0) return 2; // 开关 + 模式
+        return 5; // 开关 + 模式 + 骰子序列 + 猜拳序列 + 重置进度
     }
     
     return 0;
@@ -204,6 +219,8 @@
     if (section == 4) title = @"通知统计";
     if (section == 5) title = @"自动收款";
     if (section == 6) title = @"表情包工具";
+    if (section == 7) title = @"界面优化";
+    if (section == 8) title = @"小游戏作弊";
     
     if (!title) return nil;
     
@@ -277,6 +294,10 @@
         [self configureSection5:cell indexPath:indexPath manager:manager];
     } else if (indexPath.section == 6) {
         [self configureSection6:cell indexPath:indexPath manager:manager];
+    } else if (indexPath.section == 7) {
+        [self configureSection7:cell indexPath:indexPath manager:manager];
+    } else if (indexPath.section == 8) {
+        [self configureSection8:cell indexPath:indexPath manager:manager];
     }
     
     return cell;
@@ -671,6 +692,103 @@
         cell.accessoryView = sw;
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (indexPath.row == 1) {
+        // 缓存管理行
+        NSString *cacheDir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"JJEmoticonCache"];
+        unsigned long long totalSize = 0;
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSArray *files = [fm contentsOfDirectoryAtPath:cacheDir error:nil];
+        for (NSString *file in files) {
+            NSString *fullPath = [cacheDir stringByAppendingPathComponent:file];
+            NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
+            totalSize += [attrs fileSize];
+        }
+        NSString *sizeStr;
+        if (totalSize == 0) {
+            sizeStr = @"无缓存";
+        } else if (totalSize < 1024) {
+            sizeStr = [NSString stringWithFormat:@"%lluB", totalSize];
+        } else if (totalSize < 1024 * 1024) {
+            sizeStr = [NSString stringWithFormat:@"%.1fKB", totalSize / 1024.0];
+        } else {
+            sizeStr = [NSString stringWithFormat:@"%.1fMB", totalSize / (1024.0 * 1024.0)];
+        }
+        cell.textLabel.text = [NSString stringWithFormat:@"    表情缓存：%@", sizeStr];
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
+        cell.textLabel.textColor = [UIColor systemBlueColor];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    }
+}
+
+- (void)configureSection7:(UITableViewCell *)cell indexPath:(NSIndexPath *)indexPath manager:(JJRedBagManager *)manager {
+    if (indexPath.row == 0) {
+        cell.textLabel.text = @"⤷ 隐藏语音搜索按钮";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.hideVoiceSearchButton;
+        sw.tag = 700;
+        [sw addTarget:self action:@selector(hideFeatureSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (indexPath.row == 1) {
+        cell.textLabel.text = @"⤷ 隐藏上次分组提示";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.hideLastGroupLabel;
+        sw.tag = 701;
+        [sw addTarget:self action:@selector(hideFeatureSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    }
+}
+
+- (void)configureSection8:(UITableViewCell *)cell indexPath:(NSIndexPath *)indexPath manager:(JJRedBagManager *)manager {
+    if (indexPath.row == 0) {
+        cell.textLabel.text = @"⤷ 小游戏作弊";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = manager.gameCheatEnabled;
+        sw.tag = 800;
+        [sw addTarget:self action:@selector(gameCheatSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (indexPath.row == 1) {
+        NSString *modeText = (manager.gameCheatMode == 0) ? @"模式1：发送时选择" : @"模式2：预设序列";
+        cell.textLabel.text = [NSString stringWithFormat:@"    当前：%@", modeText];
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
+        cell.textLabel.textColor = [UIColor systemBlueColor];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    } else if (indexPath.row == 2) {
+        NSString *seq = manager.gameCheatDiceSequence.length > 0 ? manager.gameCheatDiceSequence : @"未设置";
+        NSInteger idx = manager.gameCheatDiceIndex;
+        NSString *progress = (manager.gameCheatDiceSequence.length > 0) ? 
+            [NSString stringWithFormat:@"(%ld/%lu)", (long)idx, (unsigned long)manager.gameCheatDiceSequence.length] : @"";
+        cell.textLabel.text = [NSString stringWithFormat:@"    🎲 骰子序列：%@ %@", seq, progress];
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
+        cell.textLabel.textColor = [UIColor systemBlueColor];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    } else if (indexPath.row == 3) {
+        NSString *seq = manager.gameCheatRPSSequence.length > 0 ? manager.gameCheatRPSSequence : @"未设置";
+        NSInteger idx = manager.gameCheatRPSIndex;
+        NSString *progress = (manager.gameCheatRPSSequence.length > 0) ? 
+            [NSString stringWithFormat:@"(%ld/%lu)", (long)idx, (unsigned long)manager.gameCheatRPSSequence.length] : @"";
+        cell.textLabel.text = [NSString stringWithFormat:@"    ✊ 猜拳序列：%@ %@", seq, progress];
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
+        cell.textLabel.textColor = [UIColor systemBlueColor];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    } else if (indexPath.row == 4) {
+        cell.textLabel.text = @"    🔄 重置序列进度";
+        cell.textLabel.font = [UIFont systemFontOfSize:14];
+        cell.textLabel.textColor = [UIColor systemRedColor];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     }
 }
 
@@ -762,6 +880,21 @@
                 [self showReceiveNotificationContactSelect];
                 return;
             }
+        }
+    } else if (indexPath.section == 6) {
+        if (indexPath.row == 1) {
+            // 点击清理缓存
+            [self jj_clearEmoticonCache];
+        }
+    } else if (indexPath.section == 8) {
+        if (indexPath.row == 1) {
+            [self showGameCheatModeSelector];
+        } else if (indexPath.row == 2) {
+            [self showGameCheatSequenceInput:YES]; // 骰子
+        } else if (indexPath.row == 3) {
+            [self showGameCheatSequenceInput:NO]; // 猜拳
+        } else if (indexPath.row == 4) {
+            [self resetGameCheatProgress];
         }
     }
 }
@@ -869,14 +1002,196 @@
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     manager.emoticonScaleEnabled = sender.on;
     [manager saveSettings];
+    [self.tableView reloadData];
     
     if (sender.on) {
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"表情包缩放功能" 
-            message:@"开启后，长按聊天界面的表情包，在菜单中选择「调整大小」，可以选择：\n\n• 放大 1.5倍\n• 缩小 0.7倍\n• 自定义倍数\n\n选择后将自动发送调整后的表情包。\n\n提示：微信表情包最大尺寸约为 300×300 像素。" 
+            message:@"开启后，长按聊天界面的表情包，在菜单中选择「大大小小」，可以选择：\n\n• 放大 1.5x ~ 3.0x\n• 缩小 0.5x ~ 0.75x\n• 自定义倍数\n\n选择后将自动发送调整后的表情包。" 
             preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
     }
+}
+
+- (void)hideFeatureSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (sender.tag == 700) {
+        manager.hideVoiceSearchButton = sender.on;
+        if (sender.on && !manager.hasShownHideVoiceAlert) {
+            manager.hasShownHideVoiceAlert = YES;
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"隐藏语音搜索按钮" 
+                message:@"开启后将隐藏微信搜索界面底部的「按住语音提问或搜索网络」按钮。\n\n关闭此开关即可恢复显示。" 
+                preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+    }
+    if (sender.tag == 701) {
+        manager.hideLastGroupLabel = sender.on;
+        if (sender.on && !manager.hasShownHideGroupAlert) {
+            manager.hasShownHideGroupAlert = YES;
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"隐藏上次分组提示" 
+                message:@"开启后将隐藏发布朋友圈时显示的「上次分组：xxx」提示。\n\n关闭此开关即可恢复显示。" 
+                preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+    }
+    [manager saveSettings];
+    [self.tableView reloadData];
+}
+
+- (void)gameCheatSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    manager.gameCheatEnabled = sender.on;
+    [manager saveSettings];
+    [self.tableView reloadData];
+    
+    if (sender.on && !manager.hasShownGameCheatAlert) {
+        manager.hasShownGameCheatAlert = YES;
+        [manager saveSettings];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🎮 小游戏作弊" 
+            message:@"开启后可对骰子和猜拳进行作弊：\n\n【模式1】发送时选择\n每次发送骰子/猜拳时弹出选择面板，手动选择想要的结果。\n\n【模式2】预设序列\n提前设置结果序列，发送时自动按序列出结果。\n• 骰子：输入1-6的数字，如\"223\"表示依次出2、2、3点\n• 猜拳：1=剪刀 2=石头 3=布，如\"132\"表示依次出剪刀、布、石头\n• 输入0表示该次不作弊（随机）\n• 序列用完后恢复正常发送" 
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
+}
+
+- (void)showGameCheatModeSelector {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择作弊模式"
+                                                                  message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    
+    NSString *mode1Title = (manager.gameCheatMode == 0) ? @"✅ 模式1：发送时选择" : @"模式1：发送时选择";
+    NSString *mode2Title = (manager.gameCheatMode == 1) ? @"✅ 模式2：预设序列" : @"模式2：预设序列";
+    
+    [alert addAction:[UIAlertAction actionWithTitle:mode1Title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        manager.gameCheatMode = 0;
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:mode2Title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        manager.gameCheatMode = 1;
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    
+    if (alert.popoverPresentationController) {
+        alert.popoverPresentationController.sourceView = self.view;
+        alert.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width/2, self.view.bounds.size.height/2, 1, 1);
+    }
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showGameCheatSequenceInput:(BOOL)isDice {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    NSString *title = isDice ? @"设置骰子序列" : @"设置猜拳序列";
+    NSString *message = isDice ? 
+        @"输入1-6的数字序列，每位代表一次骰子结果。\n输入0表示该次不作弊。\n例：\"22031\"表示依次出2、2、随机、3、1" :
+        @"输入1-3的数字序列：1=剪刀 2=石头 3=布\n输入0表示该次不作弊。\n例：\"1302\"表示依次出剪刀、布、随机、石头";
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                  message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = isDice ? @"如：223016" : @"如：132021";
+        tf.text = isDice ? manager.gameCheatDiceSequence : manager.gameCheatRPSSequence;
+        tf.keyboardType = UIKeyboardTypeNumberPad;
+    }];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        NSString *input = alert.textFields.firstObject.text;
+        // 过滤非法字符
+        NSMutableString *filtered = [NSMutableString string];
+        for (NSUInteger i = 0; i < input.length; i++) {
+            unichar ch = [input characterAtIndex:i];
+            if (isDice) {
+                if (ch >= '0' && ch <= '6') [filtered appendFormat:@"%C", ch];
+            } else {
+                if (ch >= '0' && ch <= '3') [filtered appendFormat:@"%C", ch];
+            }
+        }
+        if (isDice) {
+            manager.gameCheatDiceSequence = filtered;
+            manager.gameCheatDiceIndex = 0;
+        } else {
+            manager.gameCheatRPSSequence = filtered;
+            manager.gameCheatRPSIndex = 0;
+        }
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        if (isDice) {
+            manager.gameCheatDiceSequence = @"";
+            manager.gameCheatDiceIndex = 0;
+        } else {
+            manager.gameCheatRPSSequence = @"";
+            manager.gameCheatRPSIndex = 0;
+        }
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)resetGameCheatProgress {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重置序列进度"
+                                                                  message:@"将骰子和猜拳的序列进度都重置为起始位置。"
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确认重置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        JJRedBagManager *manager = [JJRedBagManager sharedManager];
+        manager.gameCheatDiceIndex = 0;
+        manager.gameCheatRPSIndex = 0;
+        [manager saveSettings];
+        [self.tableView reloadData];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)jj_clearEmoticonCache {
+    NSString *cacheDir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"JJEmoticonCache"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *files = [fm contentsOfDirectoryAtPath:cacheDir error:nil];
+    
+    if (!files || files.count == 0) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:@"当前没有缓存文件" preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好的" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+    
+    // 计算大小
+    unsigned long long totalSize = 0;
+    for (NSString *file in files) {
+        NSString *fullPath = [cacheDir stringByAppendingPathComponent:file];
+        NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
+        totalSize += [attrs fileSize];
+    }
+    
+    NSString *sizeStr;
+    if (totalSize < 1024) {
+        sizeStr = [NSString stringWithFormat:@"%lluB", totalSize];
+    } else if (totalSize < 1024 * 1024) {
+        sizeStr = [NSString stringWithFormat:@"%.1fKB", totalSize / 1024.0];
+    } else {
+        sizeStr = [NSString stringWithFormat:@"%.1fMB", totalSize / (1024.0 * 1024.0)];
+    }
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清理表情缓存"
+                                                                   message:[NSString stringWithFormat:@"共 %lu 个文件，占用 %@\n确定清理？", (unsigned long)files.count, sizeStr]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"清理" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        [fm removeItemAtPath:cacheDir error:nil];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 #pragma mark - Alerts & Selectors

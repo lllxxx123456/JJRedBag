@@ -60,8 +60,14 @@
 @property (nonatomic, copy) NSString *m_nsThumbImgPath;
 @property (nonatomic, copy) NSString *m_nsImgPath;
 @property (nonatomic, strong) NSData *m_dtEmoticonData;
+@property (nonatomic, assign) unsigned int m_uiGameType;
+@property (nonatomic, assign) unsigned int m_uiGameContent;
 - (id)initWithMsgType:(long long)arg1;
 + (BOOL)isSenderFromMsgWrap:(id)msgWrap;
+@end
+
+@interface GameController : NSObject
++ (NSString *)getMD5ByGameContent:(int)content;
 @end
 
 @interface WCRedEnvelopesLogicMgr : NSObject
@@ -127,6 +133,9 @@
 
 @interface MMTableViewInfo : NSObject
 - (UITableView *)getTableView;
+@end
+
+@interface MMTableViewCell : UITableViewCell
 @end
 
 @interface MMTableViewCellInfo : NSObject
@@ -284,6 +293,14 @@
 - (void)setMenuItems:(NSArray *)items;
 - (void)setMenuVisible:(BOOL)visible animated:(BOOL)animated;
 - (void)setTargetRect:(CGRect)rect inView:(UIView *)view;
+@end
+
+// 搜索界面语音输入浮窗
+@interface FTSFloatingVoiceInputView : UIView
+@end
+
+// 转发/分享视图控制器（发布朋友圈等）
+@interface WCForwardViewController : UIViewController
 @end
 
 @interface MMMenuItem : UIMenuItem

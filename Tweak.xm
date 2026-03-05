@@ -555,6 +555,95 @@
     [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:nil];
 }
 
+
+#pragma mark - 小游戏作弊(骰子/猜拳)
+
+- (void)AddEmoticonMsg:(NSString *)msg MsgWrap:(CMessageWrap *)msgWrap {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (manager.enabled && manager.gameCheatEnabled) {
+        if ([msgWrap m_uiMessageType] == 47) {
+            unsigned int gameType = [msgWrap m_uiGameType];
+            if (gameType == 1 || gameType == 2) {
+                if (manager.gameCheatMode == 0) {
+                    // 模式1：发送时弹窗选择
+                    NSString *title = (gameType == 1) ? @"请选择猜拳结果" : @"请选择骰子点数";
+                    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🎮 小游戏作弊"
+                                                                                  message:title
+                                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+                    
+                    if (gameType == 1) {
+                        // 猜拳：剪刀=1, 石头=2, 布=3
+                        NSArray *rpsNames = @[@"✌️ 剪刀", @"✊ 石头", @"🖐 布"];
+                        for (int i = 0; i < 3; i++) {
+                            int content = i + 1;
+                            [alert addAction:[UIAlertAction actionWithTitle:rpsNames[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                                [msgWrap setM_nsEmoticonMD5:[objc_getClass("GameController") getMD5ByGameContent:content]];
+                                [msgWrap setM_uiGameContent:content];
+                                %orig(msg, msgWrap);
+                            }]];
+                        }
+                    } else {
+                        // 骰子：点数1-6对应gameContent 4-9
+                        for (int i = 1; i <= 6; i++) {
+                            NSString *diceTitle = [NSString stringWithFormat:@"🎲 %d 点", i];
+                            int content = i + 3;
+                            [alert addAction:[UIAlertAction actionWithTitle:diceTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                                [msgWrap setM_nsEmoticonMD5:[objc_getClass("GameController") getMD5ByGameContent:content]];
+                                [msgWrap setM_uiGameContent:content];
+                                %orig(msg, msgWrap);
+                            }]];
+                        }
+                    }
+                    
+                    [alert addAction:[UIAlertAction actionWithTitle:@"随机(不作弊)" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+                        %orig(msg, msgWrap);
+                    }]];
+                    
+                    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+                    while (topVC.presentedViewController) topVC = topVC.presentedViewController;
+                    if (alert.popoverPresentationController) {
+                        alert.popoverPresentationController.sourceView = topVC.view;
+                        alert.popoverPresentationController.sourceRect = CGRectMake(topVC.view.bounds.size.width/2, topVC.view.bounds.size.height/2, 1, 1);
+                    }
+                    [topVC presentViewController:alert animated:YES completion:nil];
+                    return;
+                } else {
+                    // 模式2：预设序列自动发送
+                    NSString *sequence = (gameType == 1) ? manager.gameCheatRPSSequence : manager.gameCheatDiceSequence;
+                    NSInteger currentIndex = (gameType == 1) ? manager.gameCheatRPSIndex : manager.gameCheatDiceIndex;
+                    
+                    
+                    if (sequence.length > 0 && currentIndex < (NSInteger)sequence.length) {
+                        unichar ch = [sequence characterAtIndex:currentIndex];
+                        int value = ch - '0';
+                        
+                        // 更新序列位置
+                        if (gameType == 1) { manager.gameCheatRPSIndex = currentIndex + 1; } else { manager.gameCheatDiceIndex = currentIndex + 1; }
+                        [manager saveSettings];
+                        
+                        // 0表示不作弊，正常发送
+                        if (value > 0) {
+                            int gameContent = 0;
+                            if (gameType == 1 && value >= 1 && value <= 3) {
+                                gameContent = value; // 猜拳：1=剪刀,2=石头,3=布
+                            } else if (gameType == 2 && value >= 1 && value <= 6) {
+                                gameContent = value + 3; // 骰子：点数+3
+                            }
+                            
+                            if (gameContent > 0) {
+                                [msgWrap setM_nsEmoticonMD5:[objc_getClass("GameController") getMD5ByGameContent:gameContent]];
+                                [msgWrap setM_uiGameContent:gameContent];
+                            }
+                        }
+                    }
+                    // 序列用完或值为0时，正常发送(不作弊)
+                }
+            }
+        }
+    }
+    %orig(msg, msgWrap);
+}
+
 %end
 
 #pragma mark - 添加设置入口
@@ -1654,10 +1743,21 @@ static void jj_showScaleActionSheet(void) {
             typeStr = @"静态图";
         }
         
-        NSString *cacheStatus = (cachedData && cachedData.length > 0) ? @"✅ 已缓存" : @"⚠️ 缓存失败";
+        NSString *cacheStatus;
+        if (cachedData && cachedData.length > 0) {
+            // 显示缓存文件大小
+            float sizeKB = cachedData.length / 1024.0;
+            if (sizeKB > 1024) {
+                cacheStatus = [NSString stringWithFormat:@"[已缓存 %.1fMB]", sizeKB / 1024.0];
+            } else {
+                cacheStatus = [NSString stringWithFormat:@"[已缓存 %.0fKB]", sizeKB];
+            }
+        } else {
+            cacheStatus = @"[缓存失败]";
+        }
         NSString *msg;
         if (origWidth > 0 && origHeight > 0) {
-            msg = [NSString stringWithFormat:@"类型：%@\n原始尺寸：%u×%u\n%@\n选择后将直接发送到当前聊天", typeStr, origWidth, origHeight, cacheStatus];
+            msg = [NSString stringWithFormat:@"类型：%@\n原始尺寸：%u x %u\n%@\n选择后将直接发送到当前聊天", typeStr, origWidth, origHeight, cacheStatus];
         } else {
             msg = [NSString stringWithFormat:@"类型：%@\n%@\n选择后将直接发送到当前聊天", typeStr, cacheStatus];
         }
@@ -1717,6 +1817,7 @@ static void jj_showScaleActionSheet(void) {
     id result = %orig;
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled) return result;
     if (!manager.emoticonScaleEnabled) return result;
     if (![result isKindOfClass:[NSArray class]]) return result;
     
@@ -1724,17 +1825,11 @@ static void jj_showScaleActionSheet(void) {
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     if (MMMenuItemClass) {
         MMMenuItem *scaleItem = nil;
-        // 优先使用svgName版本（8.0.66支持），使用resize图标
+        // 使用svgName版本（8.0.66支持）
         @try {
-            scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_resize" target:self action:@selector(jj_onEmoticonResize)];
+            scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_sticker" target:self action:@selector(jj_onEmoticonResize)];
         } @catch (NSException *e) {}
-        // 备用：尝试其他图标名
-        if (!scaleItem) {
-            @try {
-                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_image" target:self action:@selector(jj_onEmoticonResize)];
-            } @catch (NSException *e) {}
-        }
-        // 最终备用：纯文字版本
+        // 备用：纯文字版本
         if (!scaleItem) {
             @try {
                 scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" target:self action:@selector(jj_onEmoticonResize)];
@@ -1787,6 +1882,113 @@ static void jj_showScaleActionSheet(void) {
             jj_showScaleActionSheet();
         });
     } @catch (NSException *exception) {}
+}
+
+%end
+
+#pragma mark - 界面优化：隐藏搜索页语音按钮
+
+%hook FTSFloatingVoiceInputView
+
+- (void)didMoveToSuperview {
+    %orig;
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (manager.enabled && manager.hideVoiceSearchButton) {
+        self.hidden = YES;
+    }
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (manager.enabled && manager.hideVoiceSearchButton) {
+        self.hidden = YES;
+    }
+}
+
+- (void)setHidden:(BOOL)hidden {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (manager.enabled && manager.hideVoiceSearchButton) {
+        %orig(YES);
+    } else {
+        %orig;
+    }
+}
+
+%end
+
+
+#pragma mark - 界面优化：隐藏朋友圈"上次分组"标签
+
+// 检查当前视图是否在发布朋友圈相关的VC中
+static BOOL jj_isInMomentsVC(UIView *view) {
+    UIResponder *responder = view;
+    while (responder) {
+        NSString *className = NSStringFromClass([responder class]);
+        if ([className isEqualToString:@"WCNewCommitViewController"] ||
+            [className isEqualToString:@"WCForwardViewController"]) {
+            return YES;
+        }
+        responder = [responder nextResponder];
+    }
+    return NO;
+}
+
+// 递归查找并隐藏包含"上次分组"的UILabel
+static BOOL jj_hideLastGroupLabelInView(UIView *view) {
+    if (!view) return NO;
+    
+    BOOL found = NO;
+    
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        NSString *text = label.text;
+        if (text && [text hasPrefix:@"上次分组"]) {
+            label.hidden = YES;
+            label.alpha = 0;
+            label.text = @"";
+            return YES;
+        }
+    }
+    
+    for (UIView *subview in view.subviews) {
+        if (jj_hideLastGroupLabelInView(subview)) {
+            found = YES;
+        }
+    }
+    
+    return found;
+}
+
+%hook MMTableViewCell
+
+- (void)layoutSubviews {
+    %orig;
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled || !manager.hideLastGroupLabel) return;
+    
+    if (!jj_isInMomentsVC((UIView *)self)) return;
+    
+    if (jj_hideLastGroupLabelInView((UIView *)self)) {
+        self.hidden = YES;
+        self.clipsToBounds = YES;
+    }
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled || !manager.hideLastGroupLabel) return;
+    
+    if (!self.window) return;
+    if (!jj_isInMomentsVC((UIView *)self)) return;
+    
+    if (jj_hideLastGroupLabelInView((UIView *)self)) {
+        self.hidden = YES;
+        self.clipsToBounds = YES;
+    }
 }
 
 %end

@@ -1,4 +1,4 @@
-#import "WeChatHeaders.h"
+﻿#import "WeChatHeaders.h"
 #import "JJRedBagManager.h"
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagParam.h"
@@ -22,7 +22,7 @@
     // 适配插件归纳
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (NSClassFromString(@"WCPluginsMgr")) {
-            [[objc_getClass("WCPluginsMgr") sharedInstance] registerControllerWithTitle:@"JJRedBag" 
+            [[objc_getClass("WCPluginsMgr") sharedInstance] registerControllerWithTitle:@"吉酱助手" 
                                                                                 version:@"1.0-1" 
                                                                              controller:@"JJRedBagSettingsController"];
         }
@@ -98,7 +98,11 @@
     if (!content) return;
     
     // 获取支付信息
-    WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
+    id rawPayInfo = [msgWrap m_oWCPayInfoItem];
+    WCPayInfoItem *payInfo = nil;
+    if (rawPayInfo && [rawPayInfo isKindOfClass:objc_getClass("WCPayInfoItem")]) {
+        payInfo = (WCPayInfoItem *)rawPayInfo;
+    }
     
     // Transfer check first (before hongbao to avoid misrouting)
     BOOL isTransferMsg = NO;
@@ -360,8 +364,9 @@
 - (void)jj_processTransferMessage:(CMessageWrap *)msgWrap {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     
-    WCPayInfoItem *payInfo = [msgWrap m_oWCPayInfoItem];
-    if (!payInfo) return;
+    id rawPayInfo2 = [msgWrap m_oWCPayInfoItem];
+    if (!rawPayInfo2 || ![rawPayInfo2 isKindOfClass:objc_getClass("WCPayInfoItem")]) return;
+    WCPayInfoItem *payInfo = (WCPayInfoItem *)rawPayInfo2;
     
     // 检查是否已收款
     @try {
@@ -465,17 +470,6 @@
                 // 使用ConfirmTransferMoney确认收款
                 // 8.0.66的参数格式需要包含完整的转账信息
                 @try {
-                    // CheckTransferMoneyStatus first
-                    NSMutableDictionary *checkParams = [NSMutableDictionary dictionary];
-                    checkParams[@"transfer_id"] = transferId;
-                    checkParams[@"transaction_id"] = transactionId;
-                    checkParams[@"receiver_username"] = selfUserNameCopy;
-                    checkParams[@"payer_username"] = payerUsername;
-                    
-                    if ([payLogicMgr respondsToSelector:@selector(CheckTransferMoneyStatus:)]) {
-                        @try { [payLogicMgr CheckTransferMoneyStatus:checkParams]; } @catch (NSException *e) {}
-                    }
-                    
                     // ConfirmTransferMoney
                     NSMutableDictionary *innerParams = [NSMutableDictionary dictionary];
                     innerParams[@"invalidtime"] = [NSString stringWithFormat:@"%u", invalidTime];
@@ -1179,7 +1173,7 @@ static void jj_stopAllBackgroundModes(void) {
                 return;
             }
             
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"JJ抢红包"
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"吉酱助手"
                                                                            message:manager.enabled ? @"当前状态：开启" : @"当前状态：关闭"
                                                                     preferredStyle:UIAlertControllerStyleAlert];
             
@@ -2015,6 +2009,146 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         self.hidden = YES;
         self.clipsToBounds = YES;
     }
+}
+
+%end
+
+#pragma mark - 小程序激励广告跳过/加速
+
+static CGFloat jj_adTimerSpeedMultiplier = 1.0;
+static BOOL jj_adSpeedActive = NO;
+static NSInteger jj_adToolbarTag = 88990011;
+
+static void jj_removeAdToolbar(UIViewController *vc) {
+    UIView *toolbar = [vc.view viewWithTag:jj_adToolbarTag];
+    if (toolbar) [toolbar removeFromSuperview];
+    jj_adSpeedActive = NO;
+    jj_adTimerSpeedMultiplier = 1.0;
+}
+
+static void jj_addAdToolbar(WAWebViewController *vc) {
+    if ([vc.view viewWithTag:jj_adToolbarTag]) return;
+    
+    CGFloat screenW = vc.view.bounds.size.width;
+    CGFloat btnW = 50, btnH = 36, spacing = 8, totalW = btnW * 4 + spacing * 3;
+    CGFloat startX = (screenW - totalW) / 2.0;
+    CGFloat topY = 80;
+    
+    UIView *toolbar = [[UIView alloc] initWithFrame:CGRectMake(startX - 12, topY, totalW + 24, btnH + 16)];
+    toolbar.tag = jj_adToolbarTag;
+    toolbar.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
+    toolbar.layer.cornerRadius = 12;
+    toolbar.layer.masksToBounds = YES;
+    
+    NSArray *titles = @[@"1x", @"5x", @"10x", @"\u8df3\u8fc7"];
+    NSArray *colors = @[
+        [UIColor systemGrayColor],
+        [UIColor systemOrangeColor],
+        [UIColor systemRedColor],
+        [UIColor systemGreenColor]
+    ];
+    
+    for (int i = 0; i < 4; i++) {
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+        btn.frame = CGRectMake(12 + i * (btnW + spacing), 8, btnW, btnH);
+        [btn setTitle:titles[i] forState:UIControlStateNormal];
+        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        btn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+        btn.backgroundColor = colors[i];
+        btn.layer.cornerRadius = 8;
+        btn.tag = 9900 + i;
+        [btn addTarget:vc action:@selector(jj_adSpeedButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [toolbar addSubview:btn];
+    }
+    
+    [vc.view addSubview:toolbar];
+    [vc.view bringSubviewToFront:toolbar];
+}
+
+%hook WAWebViewController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled || !manager.adSkipEnabled) return;
+    
+    // 延迟检测是否是激励广告页面
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            if ([self respondsToSelector:@selector(canShowGameRewardsItem)]) {
+                jj_addAdToolbar(self);
+            }
+        } @catch (NSException *e) {}
+    });
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    %orig;
+    jj_removeAdToolbar(self);
+}
+
+%new
+- (void)jj_adSpeedButtonTapped:(UIButton *)sender {
+    NSInteger idx = sender.tag - 9900;
+    
+    if (idx == 3) {
+        // 跳过按钮 - 直接触发奖励回调
+        @try {
+            if ([self respondsToSelector:@selector(onGameRewards)]) {
+                [self onGameRewards];
+            }
+        } @catch (NSException *e) {}
+        jj_removeAdToolbar(self);
+        
+        // 延迟返回上一页
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                if (self.navigationController) {
+                    [self.navigationController popViewControllerAnimated:YES];
+                } else {
+                    [self dismissViewControllerAnimated:YES completion:nil];
+                }
+            } @catch (NSException *e) {}
+        });
+        return;
+    }
+    
+    // 加速按钮
+    CGFloat speeds[] = {1.0, 5.0, 10.0};
+    jj_adTimerSpeedMultiplier = speeds[idx];
+    jj_adSpeedActive = (idx > 0);
+    
+    // 更新按钮高亮状态
+    UIView *toolbar = [self.view viewWithTag:jj_adToolbarTag];
+    if (toolbar) {
+        for (int i = 0; i < 3; i++) {
+            UIButton *btn = [toolbar viewWithTag:9900 + i];
+            if (btn) {
+                btn.alpha = (i == idx) ? 1.0 : 0.5;
+                btn.transform = (i == idx) ? CGAffineTransformMakeScale(1.1, 1.1) : CGAffineTransformIdentity;
+            }
+        }
+    }
+}
+
+%end
+
+// Hook NSTimer 实现广告加速
+%hook NSTimer
+
++ (NSTimer *)scheduledTimerWithTimeInterval:(NSTimeInterval)ti target:(id)t selector:(SEL)s userInfo:(id)ui repeats:(BOOL)r {
+    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && ti > 0 && ti <= 2.0) {
+        ti = ti / jj_adTimerSpeedMultiplier;
+    }
+    return %orig(ti, t, s, ui, r);
+}
+
++ (NSTimer *)timerWithTimeInterval:(NSTimeInterval)ti target:(id)t selector:(SEL)s userInfo:(id)ui repeats:(BOOL)r {
+    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && ti > 0 && ti <= 2.0) {
+        ti = ti / jj_adTimerSpeedMultiplier;
+    }
+    return %orig(ti, t, s, ui, r);
 }
 
 %end

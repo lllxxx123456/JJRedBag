@@ -80,6 +80,8 @@
         _gameCheatDiceIndex = 0;
         _gameCheatRPSIndex = 0;
         _hasShownGameCheatAlert = NO;
+        _adSkipEnabled = NO;
+        _hasShownAdSkipAlert = NO;
     }
     return self;
 }
@@ -148,6 +150,8 @@
     settings[@"gameCheatDiceIndex"] = @(self.gameCheatDiceIndex);
     settings[@"gameCheatRPSIndex"] = @(self.gameCheatRPSIndex);
     settings[@"hasShownGameCheatAlert"] = @(self.hasShownGameCheatAlert);
+    settings[@"adSkipEnabled"] = @(self.adSkipEnabled);
+    settings[@"hasShownAdSkipAlert"] = @(self.hasShownAdSkipAlert);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -221,6 +225,8 @@
         self.gameCheatDiceIndex = [settings[@"gameCheatDiceIndex"] integerValue];
         self.gameCheatRPSIndex = [settings[@"gameCheatRPSIndex"] integerValue];
         self.hasShownGameCheatAlert = [settings[@"hasShownGameCheatAlert"] boolValue];
+        self.adSkipEnabled = [settings[@"adSkipEnabled"] boolValue];
+        self.hasShownAdSkipAlert = [settings[@"hasShownAdSkipAlert"] boolValue];
     }
 }
 

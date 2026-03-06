@@ -94,6 +94,10 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 @property (nonatomic, assign) NSInteger gameCheatRPSIndex;          // 猜拳当前序列位置
 @property (nonatomic, assign) BOOL hasShownGameCheatAlert;          // 是否已显示游戏作弊说明
 
+// ========== 广告跳过功能 ==========
+@property (nonatomic, assign) BOOL adSkipEnabled;                  // 广告跳过开关
+@property (nonatomic, assign) BOOL hasShownAdSkipAlert;            // 是否已显示广告跳过说明
+
 + (instancetype)sharedManager;
 
 - (void)saveSettings;

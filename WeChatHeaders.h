@@ -314,6 +314,15 @@
 - (void)setTargetRect:(CGRect)rect inView:(UIView *)view;
 @end
 
+// 小程序WebView控制器
+@interface WAWebViewController : UIViewController
+@property (nonatomic, assign) BOOL m_isFinishLoaded;
+@property (nonatomic, assign) NSInteger preloadFinishTimeInMs;
+- (void)onGameRewards;
+- (BOOL)canShowGameRewardsItem;
+- (void)finishLoadAction;
+@end
+
 // 搜索界面语音输入浮窗
 @interface FTSFloatingVoiceInputView : UIView
 @end

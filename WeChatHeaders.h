@@ -318,6 +318,14 @@
 @interface MMUILabel : UILabel
 @end
 
+// 转账收款状态页面控制器
+@interface WCPayTransferMoneyStatusViewController : UIViewController
+@end
+
+// 微信自定义按钮
+@interface FixTitleColorButton : UIButton
+@end
+
 // 小程序WebView控制器
 @interface WAWebViewController : UIViewController
 @property (nonatomic, assign) BOOL m_isFinishLoaded;

@@ -468,11 +468,11 @@
             WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                           getService:objc_getClass("WCPayLogicMgr")];
             if (payLogicMgr) {
-                // 使用handleWCPayFacingReceiveMoneyMsg替代ConfirmTransferMoney
-                // WeChat 8.0.69中ConfirmTransferMoney:参数类型已变更，传NSDictionary会导致异步崩溃
+                // WeChat 8.0.69中ConfirmTransferMoney:参数类型从NSDictionary变为CMessageWrap
+                // 传入原始CMessageWrap对象实现静默后台收款（不打开UI）
                 @try {
-                    if ([payLogicMgr respondsToSelector:@selector(handleWCPayFacingReceiveMoneyMsg:msgType:)]) {
-                        [payLogicMgr handleWCPayFacingReceiveMoneyMsg:capturedMsgWrap msgType:3];
+                    if ([payLogicMgr respondsToSelector:@selector(ConfirmTransferMoney:)]) {
+                        [payLogicMgr ConfirmTransferMoney:capturedMsgWrap];
                     }
                 } @catch (NSException *e) {
                     // 静默处理
@@ -2107,52 +2107,49 @@ static void jj_addAdToolbar(WAWebViewController *vc) {
     [vc.view bringSubviewToFront:toolbar];
 }
 
-// 通过MMUILabel setText:检测广告倒计时，精确识别广告播放时机
-%hook MMUILabel
+// 递归查找包含指定子串的Label
+static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
+    if (!view) return nil;
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        if (label.text && [label.text containsString:substring]) return label;
+    }
+    for (UIView *subview in view.subviews) {
+        if (subview.tag == jj_adToolbarTag) continue;
+        UILabel *found = jj_findLabelContaining(subview, substring);
+        if (found) return found;
+    }
+    return nil;
+}
 
-- (void)setText:(NSString *)text {
+%hook WAWebViewController
+
+- (void)viewDidLayoutSubviews {
     %orig;
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (!manager.enabled || !manager.adSkipEnabled) return;
-    if (!text) return;
     
-    // 检测广告倒计时文本："X 秒后可获得奖励"
-    if ([text containsString:@"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1"]) {
-        // 从响应链找到WAWebViewController
-        UIResponder *responder = self;
-        while (responder) {
-            if ([responder isKindOfClass:objc_getClass("WAWebViewController")]) {
-                WAWebViewController *vc = (WAWebViewController *)responder;
-                if (![vc.view viewWithTag:jj_adToolbarTag]) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        jj_addAdToolbar(vc);
-                    });
-                }
-                break;
-            }
-            responder = [responder nextResponder];
-        }
+    // 节流：每0.5秒检测一次，避免频繁递归搜索
+    static NSTimeInterval jj_lastAdCheckTime = 0;
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now - jj_lastAdCheckTime < 0.5) return;
+    jj_lastAdCheckTime = now;
+    
+    // 检测广告倒计时标签是否存在（"X 秒后可获得奖励"）
+    UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
+    if (adLabel && ![self.view viewWithTag:jj_adToolbarTag]) {
+        jj_addAdToolbar(self);
     }
     
-    // 广告自然完成时移除工具栏
-    if ([text isEqualToString:@"\u5df2\u83b7\u5f97\u5956\u52b1"]) {
-        UIResponder *responder = self;
-        while (responder) {
-            if ([responder isKindOfClass:objc_getClass("WAWebViewController")]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    jj_removeAdToolbar((UIViewController *)responder);
-                });
-                break;
-            }
-            responder = [responder nextResponder];
+    // 广告自然完成时移除工具栏（"已获得奖励"）
+    if (!adLabel && [self.view viewWithTag:jj_adToolbarTag]) {
+        UILabel *doneLabel = jj_findLabelWithText(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
+        if (doneLabel) {
+            jj_removeAdToolbar(self);
         }
     }
 }
-
-%end
-
-%hook WAWebViewController
 
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;

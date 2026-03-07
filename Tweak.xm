@@ -660,11 +660,20 @@
 %hook WCPayLogicMgr
 
 - (void)ConfirmTransferMoney:(id)arg1 {
-    // 弹窗显示参数类型，用于确认正确的参数类型
-    NSString *info = [NSString stringWithFormat:@"类型: %@\n地址: %p",
-                      NSStringFromClass([arg1 class]), arg1];
+    // 使用runtime遍历所有属性名和值
+    NSMutableString *info = [NSMutableString stringWithFormat:@"类型: %@\n\n", NSStringFromClass([arg1 class])];
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"ConfirmTransferMoney 参数"
+    unsigned int propCount = 0;
+    objc_property_t *props = class_copyPropertyList([arg1 class], &propCount);
+    for (unsigned int i = 0; i < propCount; i++) {
+        NSString *propName = [NSString stringWithUTF8String:property_getName(props[i])];
+        id value = nil;
+        @try { value = [arg1 valueForKey:propName]; } @catch(NSException *e) { value = @"<error>"; }
+        [info appendFormat:@"%@: %@\n", propName, value ?: @"nil"];
+    }
+    free(props);
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"ConfirmTransferMoney"
                                                                   message:info
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];

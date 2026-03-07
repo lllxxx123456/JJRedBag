@@ -134,6 +134,19 @@
 - (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser;
 @end
 
+// 转账收款请求对象
+@interface WCPayConfirmTransferRequest : NSObject
+@property (nonatomic, copy) NSString *m_nsTransferID;
+@property (nonatomic, copy) NSString *m_nsFromUserName;
+@property (nonatomic, assign) unsigned int m_uiInvalidTime;
+@property (nonatomic, copy) NSString *group_username;
+@property (nonatomic, assign) int groupType;
+@property (nonatomic, assign) int recv_channel_type;
+@property (nonatomic, assign) int sub_recv_channel_id;
+@property (nonatomic, copy) NSString *m_nsTransferAttach;
+@property (nonatomic, copy) NSString *bind_serial;
+@end
+
 @interface WCPayLogicMgr : NSObject
 - (void)ConfirmTransferMoney:(id)arg1;
 - (void)handleWCPayFacingReceiveMoneyMsg:(id)arg1 msgType:(int)arg2;

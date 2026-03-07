@@ -447,10 +447,18 @@
         // 属性访问异常，使用默认值
     }
     
+    // 获取转账失效时间
+    unsigned int invalidTime = 0;
+    @try {
+        id rawInvalidTime = [payInfo performSelector:@selector(m_uiInvalidTime)];
+        if (rawInvalidTime) invalidTime = (unsigned int)(uintptr_t)rawInvalidTime;
+    } @catch (NSException *e) {}
+    
     long long amountValue = [amountStr longLongValue];
     NSString *fromUserCopy = [fromUser copy];
-    // 保留引用以供异步块使用
-    WCPayInfoItem *capturedPayInfo = payInfo;
+    BOOL isGroupCopy = isGroup;
+    NSString *payerUsernameCopy = [payerUsername copy];
+    NSString *transferIdCopy = [transferId copy];
     
     // 构建收款请求参数
     NSMutableDictionary *confirmParams = [NSMutableDictionary dictionary];
@@ -468,11 +476,23 @@
             WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                           getService:objc_getClass("WCPayLogicMgr")];
             if (payLogicMgr) {
-                // 直接调用ConfirmTransferMoney传入WCPayInfoItem实现纯后台静默收款
-                // WCPayInfoItem包含transferId/transactionId等完整转账信息
+                // 构造WCPayConfirmTransferRequest实现纯后台静默收款
                 @try {
+                    WCPayConfirmTransferRequest *request = [[objc_getClass("WCPayConfirmTransferRequest") alloc] init];
+                    request.m_nsTransferID = transferIdCopy;
+                    request.m_nsFromUserName = payerUsernameCopy;
+                    request.m_uiInvalidTime = invalidTime;
+                    request.recv_channel_type = 0;
+                    request.sub_recv_channel_id = 0;
+                    if (isGroupCopy) {
+                        request.group_username = fromUserCopy;
+                        request.groupType = 1;
+                    } else {
+                        request.groupType = 0;
+                    }
+                    
                     if ([payLogicMgr respondsToSelector:@selector(ConfirmTransferMoney:)]) {
-                        [payLogicMgr ConfirmTransferMoney:capturedPayInfo];
+                        [payLogicMgr ConfirmTransferMoney:request];
                     }
                 } @catch (NSException *e) {
                     // 静默处理
@@ -651,40 +671,6 @@
         }
     }
     %orig(msg, msgWrap);
-}
-
-%end
-
-#pragma mark - 临时诊断：捕获ConfirmTransferMoney参数类型（确认后删除）
-
-%hook WCPayLogicMgr
-
-- (void)ConfirmTransferMoney:(id)arg1 {
-    // 使用runtime遍历所有属性名和值
-    NSMutableString *info = [NSMutableString stringWithFormat:@"类型: %@\n\n", NSStringFromClass([arg1 class])];
-    
-    unsigned int propCount = 0;
-    objc_property_t *props = class_copyPropertyList([arg1 class], &propCount);
-    for (unsigned int i = 0; i < propCount; i++) {
-        NSString *propName = [NSString stringWithUTF8String:property_getName(props[i])];
-        id value = nil;
-        @try { value = [arg1 valueForKey:propName]; } @catch(NSException *e) { value = @"<error>"; }
-        [info appendFormat:@"%@: %@\n", propName, value ?: @"nil"];
-    }
-    free(props);
-    
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"ConfirmTransferMoney"
-                                                                  message:info
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-        while (topVC.presentedViewController) topVC = topVC.presentedViewController;
-        [topVC presentViewController:alert animated:YES completion:nil];
-    });
-    
-    %orig;
 }
 
 %end

@@ -314,6 +314,10 @@
 - (void)setTargetRect:(CGRect)rect inView:(UIView *)view;
 @end
 
+// 微信自定义Label
+@interface MMUILabel : UILabel
+@end
+
 // 小程序WebView控制器
 @interface WAWebViewController : UIViewController
 @property (nonatomic, assign) BOOL m_isFinishLoaded;

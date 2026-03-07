@@ -4,6 +4,8 @@
 #import "JJRedBagParam.h"
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
 
 // GIF的UTI标识符（避免依赖MobileCoreServices中已废弃的kUTTypeGIF）
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
@@ -447,9 +449,8 @@
     
     long long amountValue = [amountStr longLongValue];
     NSString *fromUserCopy = [fromUser copy];
-    NSString *selfUserNameCopy = [selfUserName copy];
-    unsigned int invalidTime = payInfo.m_uiInvalidTime;
-    unsigned int beginTransferTime = payInfo.m_uiBeginTransferTime;
+    // 保留msgWrap引用以供异步块使用
+    CMessageWrap *capturedMsgWrap = msgWrap;
     
     // 构建收款请求参数
     NSMutableDictionary *confirmParams = [NSMutableDictionary dictionary];
@@ -467,23 +468,11 @@
             WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                           getService:objc_getClass("WCPayLogicMgr")];
             if (payLogicMgr) {
-                // 使用ConfirmTransferMoney确认收款
-                // 8.0.66的参数格式需要包含完整的转账信息
+                // 使用handleWCPayFacingReceiveMoneyMsg替代ConfirmTransferMoney
+                // WeChat 8.0.69中ConfirmTransferMoney:参数类型已变更，传NSDictionary会导致异步崩溃
                 @try {
-                    // ConfirmTransferMoney
-                    NSMutableDictionary *innerParams = [NSMutableDictionary dictionary];
-                    innerParams[@"invalidtime"] = [NSString stringWithFormat:@"%u", invalidTime];
-                    innerParams[@"begintransfertime"] = [NSString stringWithFormat:@"%u", beginTransferTime];
-                    innerParams[@"transfer_id"] = transferId;
-                    innerParams[@"transaction_id"] = transactionId;
-                    innerParams[@"pay_channel"] = @"1";
-                    innerParams[@"scene"] = @"32";
-                    innerParams[@"receiver_username"] = selfUserNameCopy;
-                    innerParams[@"payer_username"] = payerUsername;
-                    innerParams[@"fee"] = amountStr;
-                    
-                    if ([payLogicMgr respondsToSelector:@selector(ConfirmTransferMoney:)]) {
-                        [payLogicMgr ConfirmTransferMoney:innerParams];
+                    if ([payLogicMgr respondsToSelector:@selector(handleWCPayFacingReceiveMoneyMsg:msgType:)]) {
+                        [payLogicMgr handleWCPayFacingReceiveMoneyMsg:capturedMsgWrap msgType:3];
                     }
                 } @catch (NSException *e) {
                     // 静默处理
@@ -2026,34 +2015,87 @@ static void jj_removeAdToolbar(UIViewController *vc) {
     jj_adTimerSpeedMultiplier = 1.0;
 }
 
+// 递归查找包含指定文本的MMUILabel
+static UILabel *jj_findLabelWithText(UIView *view, NSString *text) {
+    if (!view) return nil;
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        if (label.text && [label.text isEqualToString:text]) return label;
+    }
+    for (UIView *subview in view.subviews) {
+        // 跳过工具栏本身
+        if (subview.tag == jj_adToolbarTag) continue;
+        UILabel *found = jj_findLabelWithText(subview, text);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// 模拟点击"关闭"按钮：从label向上遍历找到可点击的父视图并触发
+static void jj_triggerCloseAction(UILabel *closeLabel) {
+    if (!closeLabel) return;
+    UIView *target = closeLabel.superview;
+    while (target) {
+        // 检查UIControl
+        if ([target isKindOfClass:[UIControl class]]) {
+            [(UIControl *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
+            return;
+        }
+        // 检查手势识别器
+        for (UIGestureRecognizer *gr in target.gestureRecognizers) {
+            if ([gr isKindOfClass:[UITapGestureRecognizer class]] && gr.enabled) {
+                @try {
+                    NSArray *grTargets = [gr valueForKey:@"_targets"];
+                    if ([grTargets isKindOfClass:[NSArray class]] && grTargets.count > 0) {
+                        id targetActionPair = [grTargets firstObject];
+                        id actionTarget = [targetActionPair valueForKey:@"_target"];
+                        if (actionTarget) {
+                            // 使用ObjC Runtime安全读取_action (SEL类型，KVC无法正确包装)
+                            Ivar actionIvar = class_getInstanceVariable(object_getClass(targetActionPair), "_action");
+                            if (actionIvar) {
+                                ptrdiff_t offset = ivar_getOffset(actionIvar);
+                                SEL action = *(SEL *)((uint8_t *)(__bridge void *)targetActionPair + offset);
+                                if (action) {
+                                    ((void (*)(id, SEL, id))objc_msgSend)(actionTarget, action, gr);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                } @catch (NSException *e) {}
+            }
+        }
+        target = target.superview;
+    }
+}
+
 static void jj_addAdToolbar(WAWebViewController *vc) {
     if ([vc.view viewWithTag:jj_adToolbarTag]) return;
     
     CGFloat screenW = vc.view.bounds.size.width;
-    CGFloat btnW = 50, btnH = 36, spacing = 8, totalW = btnW * 4 + spacing * 3;
+    CGFloat btnW = 60, btnH = 36, spacing = 8, totalW = btnW * 3 + spacing * 2;
     CGFloat startX = (screenW - totalW) / 2.0;
-    CGFloat topY = 80;
+    CGFloat topY = 44;
     
     UIView *toolbar = [[UIView alloc] initWithFrame:CGRectMake(startX - 12, topY, totalW + 24, btnH + 16)];
     toolbar.tag = jj_adToolbarTag;
-    toolbar.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
+    toolbar.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
     toolbar.layer.cornerRadius = 12;
     toolbar.layer.masksToBounds = YES;
     
-    NSArray *titles = @[@"1x", @"5x", @"10x", @"\u8df3\u8fc7"];
+    NSArray *titles = @[@"5x\u52a0\u901f", @"10x\u52a0\u901f", @"\u8df3\u8fc7\u5e7f\u544a"];
     NSArray *colors = @[
-        [UIColor systemGrayColor],
         [UIColor systemOrangeColor],
         [UIColor systemRedColor],
         [UIColor systemGreenColor]
     ];
     
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
         btn.frame = CGRectMake(12 + i * (btnW + spacing), 8, btnW, btnH);
         [btn setTitle:titles[i] forState:UIControlStateNormal];
         [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        btn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+        btn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightBold];
         btn.backgroundColor = colors[i];
         btn.layer.cornerRadius = 8;
         btn.tag = 9900 + i;
@@ -2065,23 +2107,52 @@ static void jj_addAdToolbar(WAWebViewController *vc) {
     [vc.view bringSubviewToFront:toolbar];
 }
 
-%hook WAWebViewController
+// 通过MMUILabel setText:检测广告倒计时，精确识别广告播放时机
+%hook MMUILabel
 
-- (void)viewDidAppear:(BOOL)animated {
+- (void)setText:(NSString *)text {
     %orig;
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (!manager.enabled || !manager.adSkipEnabled) return;
+    if (!text) return;
     
-    // 延迟检测是否是激励广告页面
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        @try {
-            if ([self respondsToSelector:@selector(canShowGameRewardsItem)]) {
-                jj_addAdToolbar(self);
+    // 检测广告倒计时文本："X 秒后可获得奖励"
+    if ([text containsString:@"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1"]) {
+        // 从响应链找到WAWebViewController
+        UIResponder *responder = self;
+        while (responder) {
+            if ([responder isKindOfClass:objc_getClass("WAWebViewController")]) {
+                WAWebViewController *vc = (WAWebViewController *)responder;
+                if (![vc.view viewWithTag:jj_adToolbarTag]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        jj_addAdToolbar(vc);
+                    });
+                }
+                break;
             }
-        } @catch (NSException *e) {}
-    });
+            responder = [responder nextResponder];
+        }
+    }
+    
+    // 广告自然完成时移除工具栏
+    if ([text isEqualToString:@"\u5df2\u83b7\u5f97\u5956\u52b1"]) {
+        UIResponder *responder = self;
+        while (responder) {
+            if ([responder isKindOfClass:objc_getClass("WAWebViewController")]) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    jj_removeAdToolbar((UIViewController *)responder);
+                });
+                break;
+            }
+            responder = [responder nextResponder];
+        }
+    }
 }
+
+%end
+
+%hook WAWebViewController
 
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;
@@ -2092,37 +2163,38 @@ static void jj_addAdToolbar(WAWebViewController *vc) {
 - (void)jj_adSpeedButtonTapped:(UIButton *)sender {
     NSInteger idx = sender.tag - 9900;
     
-    if (idx == 3) {
-        // 跳过按钮 - 直接触发奖励回调
+    if (idx == 2) {
+        // 跳过广告按钮
         @try {
+            // 1. 触发奖励回调
             if ([self respondsToSelector:@selector(onGameRewards)]) {
                 [self onGameRewards];
             }
         } @catch (NSException *e) {}
+        
         jj_removeAdToolbar(self);
         
-        // 延迟返回上一页
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        // 2. 延迟后模拟点击"关闭"按钮
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try {
-                if (self.navigationController) {
-                    [self.navigationController popViewControllerAnimated:YES];
-                } else {
-                    [self dismissViewControllerAnimated:YES completion:nil];
+                UILabel *closeLabel = jj_findLabelWithText(self.view, @"\u5173\u95ed");
+                if (closeLabel) {
+                    jj_triggerCloseAction(closeLabel);
                 }
             } @catch (NSException *e) {}
         });
         return;
     }
     
-    // 加速按钮
-    CGFloat speeds[] = {1.0, 5.0, 10.0};
+    // 加速按钮 (idx 0 = 5x, idx 1 = 10x)
+    CGFloat speeds[] = {5.0, 10.0};
     jj_adTimerSpeedMultiplier = speeds[idx];
-    jj_adSpeedActive = (idx > 0);
+    jj_adSpeedActive = YES;
     
     // 更新按钮高亮状态
     UIView *toolbar = [self.view viewWithTag:jj_adToolbarTag];
     if (toolbar) {
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             UIButton *btn = [toolbar viewWithTag:9900 + i];
             if (btn) {
                 btn.alpha = (i == idx) ? 1.0 : 0.5;
@@ -2134,7 +2206,7 @@ static void jj_addAdToolbar(WAWebViewController *vc) {
 
 %end
 
-// Hook NSTimer 实现广告加速
+// Hook NSTimer 实现广告加速（仅在广告播放时生效）
 %hook NSTimer
 
 + (NSTimer *)scheduledTimerWithTimeInterval:(NSTimeInterval)ti target:(id)t selector:(SEL)s userInfo:(id)ui repeats:(BOOL)r {

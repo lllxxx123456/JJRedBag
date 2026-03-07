@@ -320,6 +320,7 @@
 
 // 转账收款状态页面控制器
 @interface WCPayTransferMoneyStatusViewController : UIViewController
+- (void)OnConfirmTransferMoneyBtnDone;
 @end
 
 // 微信自定义按钮

@@ -449,8 +449,8 @@
     
     long long amountValue = [amountStr longLongValue];
     NSString *fromUserCopy = [fromUser copy];
-    // 保留msgWrap引用以供异步块使用
-    CMessageWrap *capturedMsgWrap = msgWrap;
+    // 保留引用以供异步块使用
+    WCPayInfoItem *capturedPayInfo = payInfo;
     
     // 构建收款请求参数
     NSMutableDictionary *confirmParams = [NSMutableDictionary dictionary];
@@ -468,11 +468,11 @@
             WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                           getService:objc_getClass("WCPayLogicMgr")];
             if (payLogicMgr) {
-                // WeChat 8.0.69中ConfirmTransferMoney:参数类型从NSDictionary变为CMessageWrap
-                // 传入原始CMessageWrap对象实现静默后台收款（不打开UI）
+                // 直接调用ConfirmTransferMoney传入WCPayInfoItem实现纯后台静默收款
+                // WCPayInfoItem包含transferId/transactionId等完整转账信息
                 @try {
                     if ([payLogicMgr respondsToSelector:@selector(ConfirmTransferMoney:)]) {
-                        [payLogicMgr ConfirmTransferMoney:capturedMsgWrap];
+                        [payLogicMgr ConfirmTransferMoney:capturedPayInfo];
                     }
                 } @catch (NSException *e) {
                     // 静默处理
@@ -651,6 +651,31 @@
         }
     }
     %orig(msg, msgWrap);
+}
+
+%end
+
+#pragma mark - 临时诊断：捕获ConfirmTransferMoney参数类型（确认后删除）
+
+%hook WCPayLogicMgr
+
+- (void)ConfirmTransferMoney:(id)arg1 {
+    // 弹窗显示参数类型，用于确认正确的参数类型
+    NSString *info = [NSString stringWithFormat:@"类型: %@\n地址: %p",
+                      NSStringFromClass([arg1 class]), arg1];
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"ConfirmTransferMoney 参数"
+                                                                  message:info
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        while (topVC.presentedViewController) topVC = topVC.presentedViewController;
+        [topVC presentViewController:alert animated:YES completion:nil];
+    });
+    
+    %orig;
 }
 
 %end

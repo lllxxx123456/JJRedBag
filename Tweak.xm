@@ -2482,12 +2482,52 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
         jj_addAdToolbar(self);
     }
     
-    // 广告自然完成时移除工具栏（"已获得奖励"）
-    if (!adLabel && jj_adToolbarWindow) {
-        UILabel *doneLabel = jj_findLabelWithText(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
-        if (doneLabel) {
-            jj_dbg(@"[广告] 已获得奖励，移除工具栏");
-            jj_removeAdToolbar(self);
+    // 广告自然完成时：自动点击关闭按钮并移除工具栏
+    UILabel *doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
+    if (!doneLabel) doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u5b8c\u6210");
+    if (!doneLabel) doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u9886\u53d6");
+    if (doneLabel) {
+        static NSTimeInterval jj_lastAutoCloseTime = 0;
+        if (now - jj_lastAutoCloseTime > 2.0) {
+            jj_lastAutoCloseTime = now;
+            jj_dbg([NSString stringWithFormat:@"[广告] 检测到完成: %@，自动关闭", doneLabel.text]);
+            
+            // 找overlay并点击关闭按钮
+            UIView *overlay = doneLabel.superview;
+            while (overlay && overlay != self.view) {
+                if (overlay.superview == self.view || overlay.subviews.count >= 3) break;
+                overlay = overlay.superview;
+            }
+            if (overlay && overlay != self.view && overlay.subviews.count > 0) {
+                UIView *closeArea = overlay.subviews[0];
+                // 触发手势
+                for (UIGestureRecognizer *g in closeArea.gestureRecognizers) {
+                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
+                        jj_dbg(@"[广告] 自动触发关闭手势");
+                    }
+                }
+                for (UIGestureRecognizer *g in overlay.gestureRecognizers) {
+                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
+                    }
+                }
+                [closeArea accessibilityActivate];
+            }
+            
+            // 同时发送JSBridge事件
+            @try {
+                SEL bothSel = @selector(sendEventToJSBridgeAndService:Param:);
+                SEL bridgeSel = @selector(sendEventToJSBridge:Param:);
+                NSDictionary *param = @{@"isEnded": @YES};
+                if ([self respondsToSelector:bothSel]) {
+                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bothSel, @"onRewardedVideoAdClose", param);
+                } else if ([self respondsToSelector:bridgeSel]) {
+                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bridgeSel, @"onRewardedVideoAdClose", param);
+                }
+            } @catch (NSException *e) {}
+            
+            if (jj_adToolbarWindow) jj_removeAdToolbar(self);
         }
     }
 }
@@ -2504,174 +2544,118 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     if (idx == 2) {
         jj_dbg(@"[广告] 点击跳过广告");
         
-        // === 策略1(核心)：通过JSBridge通知小程序广告已完成 ===
+        // 找到广告overlay
+        UIView *overlay = nil;
+        UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
+        if (!adLabel) adLabel = jj_findLabelContaining(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
+        if (!adLabel) adLabel = jj_findLabelContaining(self.view, @"\u5df2\u5b8c\u6210");
+        if (adLabel) {
+            overlay = adLabel.superview;
+            while (overlay && overlay != self.view) {
+                if (overlay.superview == self.view || overlay.subviews.count >= 3) break;
+                overlay = overlay.superview;
+            }
+        }
+        
+        // === 策略1(核心)：模拟点击关闭按钮区域（overlay第一个子视图） ===
         @try {
-            // sendEventToJSBridge:Param: 是小程序native→JS通信通道
+            if (overlay && overlay != self.view && overlay.subviews.count > 0) {
+                UIView *closeArea = overlay.subviews[0];
+                jj_dbg([NSString stringWithFormat:@"[广告] 策略1: 关闭区域 class=%@ frame=%.0f,%.0f,%.0f,%.0f",
+                    NSStringFromClass([closeArea class]),
+                    closeArea.frame.origin.x, closeArea.frame.origin.y,
+                    closeArea.frame.size.width, closeArea.frame.size.height]);
+                
+                // dump手势识别器
+                NSArray *gestures = closeArea.gestureRecognizers;
+                jj_dbg([NSString stringWithFormat:@"[广告] 关闭区域手势数: %lu", (unsigned long)gestures.count]);
+                for (UIGestureRecognizer *g in gestures) {
+                    jj_dbg([NSString stringWithFormat:@"[广告] 手势: %@ target=%@",
+                        NSStringFromClass([g class]),
+                        [g valueForKey:@"_targets"]]);
+                }
+                // 也dump overlay自身的手势
+                NSArray *overlayGestures = overlay.gestureRecognizers;
+                jj_dbg([NSString stringWithFormat:@"[广告] overlay手势数: %lu", (unsigned long)overlayGestures.count]);
+                for (UIGestureRecognizer *g in overlayGestures) {
+                    jj_dbg([NSString stringWithFormat:@"[广告] overlay手势: %@ target=%@",
+                        NSStringFromClass([g class]),
+                        [g valueForKey:@"_targets"]]);
+                }
+                
+                // 触发手势识别器
+                for (UIGestureRecognizer *g in gestures) {
+                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+                        jj_dbg(@"[广告] 策略1: 触发tap手势");
+                        // 通过设置state来触发
+                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
+                    }
+                }
+                for (UIGestureRecognizer *g in overlayGestures) {
+                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+                        jj_dbg(@"[广告] 策略1: 触发overlay tap手势");
+                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
+                    }
+                }
+                
+                // 模拟触摸事件：在关闭按钮中心发送touch
+                CGPoint center = CGPointMake(CGRectGetMidX(closeArea.frame), CGRectGetMidY(closeArea.frame));
+                CGPoint screenPoint = [closeArea.superview convertPoint:center toView:nil];
+                jj_dbg([NSString stringWithFormat:@"[广告] 策略1: 模拟点击 screen=(%.0f,%.0f)", screenPoint.x, screenPoint.y]);
+                
+                // 通过accessibilityActivate尝试
+                [closeArea accessibilityActivate];
+                
+                // 通过hitTest找到响应者并发送touch
+                UIView *hitView = [self.view hitTest:[self.view convertPoint:screenPoint fromView:nil] withEvent:nil];
+                if (hitView) {
+                    jj_dbg([NSString stringWithFormat:@"[广告] 策略1: hitTest命中 %@", NSStringFromClass([hitView class])]);
+                    [hitView accessibilityActivate];
+                }
+            }
+        } @catch (NSException *e) {
+            jj_dbg([NSString stringWithFormat:@"[广告] 策略1异常: %@", e.reason]);
+        }
+        
+        // === 策略2：通过JSBridge通知小程序广告已完成 ===
+        @try {
             SEL bridgeSel = @selector(sendEventToJSBridge:Param:);
             SEL serviceSel = @selector(sendEventToService:Param:);
             SEL bothSel = @selector(sendEventToJSBridgeAndService:Param:);
             
             NSDictionary *rewardParam = @{@"isEnded": @YES, @"errCode": @0, @"errMsg": @"onClose:ok"};
-            
-            // 尝试多种事件名（不同版本SDK事件名可能不同）
-            NSArray *eventNames = @[
-                @"onRewardedVideoAdClose",
-                @"onAdClose",
-                @"rewardedVideoAdClose",
-                @"onRewardedVideoClose",
-                @"onAdEnd"
-            ];
+            NSArray *eventNames = @[@"onRewardedVideoAdClose", @"onAdClose", @"rewardedVideoAdClose"];
             
             for (NSString *eventName in eventNames) {
                 if ([self respondsToSelector:bothSel]) {
                     ((void (*)(id, SEL, id, id))objc_msgSend)(self, bothSel, eventName, rewardParam);
                 } else {
-                    if ([self respondsToSelector:bridgeSel]) {
+                    if ([self respondsToSelector:bridgeSel])
                         ((void (*)(id, SEL, id, id))objc_msgSend)(self, bridgeSel, eventName, rewardParam);
-                    }
-                    if ([self respondsToSelector:serviceSel]) {
+                    if ([self respondsToSelector:serviceSel])
                         ((void (*)(id, SEL, id, id))objc_msgSend)(self, serviceSel, eventName, rewardParam);
-                    }
                 }
             }
-            jj_dbg(@"[广告] 策略1: JSBridge事件已发送");
-        } @catch (NSException *e) {
-            jj_dbg([NSString stringWithFormat:@"[广告] 策略1异常: %@", e.reason]);
-        }
+            jj_dbg(@"[广告] 策略2: JSBridge事件已发送");
+        } @catch (NSException *e) {}
         
-        // === 策略2：调用onGameRewards ===
+        // === 策略3：调用onGameRewards ===
         @try {
             if ([self respondsToSelector:@selector(onGameRewards)]) {
                 [self onGameRewards];
-                jj_dbg(@"[广告] 策略2: onGameRewards已调用");
+                jj_dbg(@"[广告] 策略3: onGameRewards已调用");
             }
         } @catch (NSException *e) {}
         
-        // === 策略3：找广告overlay中的所有按钮并dump，尝试找真正的关闭/跳过按钮 ===
+        // === 策略4：直接移除广告overlay ===
         @try {
-            UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
-            if (adLabel) {
-                // 从倒计时label向上找广告overlay容器
-                UIView *overlay = adLabel.superview;
-                while (overlay && overlay != self.view) {
-                    // 找第一个非self.view的直接子view作为overlay
-                    if (overlay.superview == self.view || overlay.subviews.count >= 3) {
-                        break;
-                    }
-                    overlay = overlay.superview;
-                }
-                
-                if (overlay && overlay != self.view) {
-                    jj_dbg([NSString stringWithFormat:@"[广告] 策略3: overlay class=%@ subviews=%lu",
-                        NSStringFromClass([overlay class]), (unsigned long)overlay.subviews.count]);
-                    
-                    // dump overlay中所有子视图的类名和frame
-                    {
-                        for (UIView *sub in overlay.subviews) {
-                            NSString *info = [NSString stringWithFormat:@"  class=%@ frame=%.0f,%.0f,%.0f,%.0f tag=%ld",
-                                NSStringFromClass([sub class]),
-                                sub.frame.origin.x, sub.frame.origin.y,
-                                sub.frame.size.width, sub.frame.size.height,
-                                (long)sub.tag];
-                            if ([sub isKindOfClass:[UILabel class]]) {
-                                info = [info stringByAppendingFormat:@" text=%@", ((UILabel *)sub).text];
-                            }
-                            if ([sub isKindOfClass:[UIButton class]]) {
-                                info = [info stringByAppendingFormat:@" title=%@", [((UIButton *)sub) titleForState:UIControlStateNormal]];
-                            }
-                            jj_dbg([NSString stringWithFormat:@"[广告子视图] %@", info]);
-                            // 递归dump一层子视图
-                            for (UIView *subsub in sub.subviews) {
-                                NSString *subinfo = [NSString stringWithFormat:@"    class=%@ frame=%.0f,%.0f,%.0f,%.0f",
-                                    NSStringFromClass([subsub class]),
-                                    subsub.frame.origin.x, subsub.frame.origin.y,
-                                    subsub.frame.size.width, subsub.frame.size.height];
-                                if ([subsub isKindOfClass:[UILabel class]]) {
-                                    subinfo = [subinfo stringByAppendingFormat:@" text=%@", ((UILabel *)subsub).text];
-                                }
-                                if ([subsub isKindOfClass:[UIButton class]]) {
-                                    subinfo = [subinfo stringByAppendingFormat:@" title=%@", [((UIButton *)subsub) titleForState:UIControlStateNormal]];
-                                }
-                                jj_dbg([NSString stringWithFormat:@"[广告子视图] %@", subinfo]);
-                            }
-                        }
-                    }
-                    
-                    // 在overlay中查找所有按钮并模拟点击"关闭"/"跳过"相关按钮
-                    NSMutableArray *btnStack = [NSMutableArray arrayWithObject:overlay];
-                    while (btnStack.count > 0) {
-                        UIView *v = [btnStack lastObject];
-                        [btnStack removeLastObject];
-                        if ([v isKindOfClass:[UIButton class]]) {
-                            UIButton *btn = (UIButton *)v;
-                            NSString *title = [btn titleForState:UIControlStateNormal] ?: @"";
-                            if ([title containsString:@"\u5173\u95ed"] || [title containsString:@"\u8df3\u8fc7"] ||
-                                [title containsString:@"close"] || [title containsString:@"skip"]) {
-                                jj_dbg([NSString stringWithFormat:@"[广告] 策略3: 点击按钮 title=%@", title]);
-                                [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
-                            }
-                        }
-                        [btnStack addObjectsFromArray:v.subviews];
-                    }
-                    
-                    // 修改倒计时文本为"0秒"触发完成检测
-                    adLabel.text = @"0 \u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1";
-                }
-            }
-        } @catch (NSException *e) {}
-        
-        // === 策略4：WKWebView JS注入 ===
-        @try {
-            Class wkClass = objc_getClass("WKWebView");
-            if (wkClass) {
-                id foundWebView = nil;
-                NSMutableArray *stack = [NSMutableArray arrayWithObject:self.view];
-                while (stack.count > 0) {
-                    UIView *v = [stack lastObject];
-                    [stack removeLastObject];
-                    if ([v isKindOfClass:wkClass]) { foundWebView = v; break; }
-                    [stack addObjectsFromArray:v.subviews];
-                }
-                if (foundWebView && [foundWebView respondsToSelector:@selector(evaluateJavaScript:completionHandler:)]) {
-                    // 更全面的JS：尝试多种方式触发广告完成
-                    NSString *js = @"try{"
-                        "if(typeof WeixinJSBridge!=='undefined'){"
-                        "  WeixinJSBridge.publish('__WA_AD_EVENT__',{type:'close',adType:'RewardedVideo',isEnded:true});"
-                        "  WeixinJSBridge.publish('onRewardedVideoAdClose',{isEnded:true});"
-                        "  WeixinJSBridge.publish('onAdClose',{isEnded:true});"
-                        "}"
-                        "if(typeof __wxLibrary!=='undefined'&&__wxLibrary.onRewardedVideoAdClose){"
-                        "  __wxLibrary.onRewardedVideoAdClose({isEnded:true});"
-                        "}"
-                        "}catch(ex){}";
-                    SEL evalSel = @selector(evaluateJavaScript:completionHandler:);
-                    ((void (*)(id, SEL, NSString *, id))objc_msgSend)(foundWebView, evalSel, js, ^(id r, NSError *err) {
-                        jj_dbg([NSString stringWithFormat:@"[广告] 策略4: JS result=%@ err=%@", r, err.localizedDescription]);
-                    });
-                    jj_dbg(@"[广告] 策略4: JS已注入");
-                }
+            if (overlay && overlay != self.view) {
+                [overlay removeFromSuperview];
+                jj_dbg(@"[广告] 策略4: 已移除广告overlay");
             }
         } @catch (NSException *e) {}
         
         jj_removeAdToolbar(self);
-        
-        // 延迟后尝试关闭
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            @try {
-                // 尝试找"关闭"label并触发
-                UILabel *closeLabel = jj_findLabelWithText(self.view, @"\u5173\u95ed");
-                if (closeLabel) {
-                    jj_triggerCloseAction(closeLabel);
-                    jj_dbg(@"[广告] 延迟: 关闭按钮已触发");
-                }
-                // 也尝试找"已获得奖励"相关的按钮
-                UILabel *doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
-                if (doneLabel) {
-                    jj_triggerCloseAction(doneLabel);
-                    jj_dbg(@"[广告] 延迟: 奖励完成按钮已触发");
-                }
-            } @catch (NSException *e) {}
-        });
         return;
     }
     

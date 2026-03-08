@@ -504,11 +504,11 @@ static __weak id jj_cachedPayLogicMgr = nil;
         // 属性访问异常，使用默认值
     }
     
-    // 获取转账失效时间
+    // 获取转账失效时间（必须用valueForKey自动装箱，performSelector对标量值会触发ARC的SIGSEGV）
     unsigned int invalidTime = 0;
     @try {
-        id rawInvalidTime = [payInfo performSelector:@selector(m_uiInvalidTime)];
-        if (rawInvalidTime) invalidTime = (unsigned int)(uintptr_t)rawInvalidTime;
+        NSNumber *rawInvalidTime = [payInfo valueForKey:@"m_uiInvalidTime"];
+        if (rawInvalidTime) invalidTime = [rawInvalidTime unsignedIntValue];
     } @catch (NSException *e) {}
     
     jj_dbg([NSString stringWithFormat:@"transferId: %@", transferId]);

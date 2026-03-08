@@ -13,168 +13,6 @@
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
 static id jj_cachedPayLogicMgr = nil;
 
-// 透传触摸的UIWindow：只在有内容的区域响应，其他区域透传
-@interface JJPassthroughWindow : UIWindow
-@end
-@implementation JJPassthroughWindow
-- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
-    for (UIView *sub in self.subviews) {
-        if (!sub.hidden && sub.alpha > 0.01 && sub.userInteractionEnabled &&
-            [sub pointInside:[self convertPoint:point toView:sub] withEvent:event]) {
-            return YES;
-        }
-    }
-    return NO;
-}
-@end
-
-// 临时悬浮窗调试（确认问题后删除）
-static JJPassthroughWindow *jj_debugWindow = nil;
-static UIView *jj_debugContainer = nil;
-static UITextView *jj_debugLogView = nil;
-static NSMutableString *jj_debugLog = nil;
-static BOOL jj_debugVisible = YES;
-static UIButton *jj_debugToggleBtn = nil;
-static UIWindow *jj_toggleWindow = nil;
-static void jj_showDebugWindow(void);
-
-// 调试窗口控制器（必须在jj_showDebugWindow之前定义）
-@interface JJDebugHelper : NSObject
-+ (instancetype)shared;
-@end
-@implementation JJDebugHelper
-+ (instancetype)shared {
-    static JJDebugHelper *inst;
-    static dispatch_once_t t;
-    dispatch_once(&t, ^{ inst = [[self alloc] init]; });
-    return inst;
-}
-- (void)jj_copyDebugLog {
-    [UIPasteboard generalPasteboard].string = jj_debugLog ?: @"";
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:@"\u65e5\u5fd7\u5df2\u590d\u5236\u5230\u526a\u8d34\u677f" preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
-}
-- (void)jj_closeDebugWindow {
-    jj_debugWindow.hidden = YES;
-    jj_debugWindow = nil;
-    jj_debugContainer = nil; jj_debugLogView = nil; jj_debugVisible = NO;
-    if (!jj_toggleWindow) {
-        jj_toggleWindow = [[UIWindow alloc] initWithFrame:CGRectMake(5, 70, 60, 28)];
-        jj_toggleWindow.windowLevel = 10000001;
-        jj_toggleWindow.backgroundColor = [UIColor clearColor];
-        jj_toggleWindow.rootViewController = [[UIViewController alloc] init];
-        jj_toggleWindow.rootViewController.view.backgroundColor = [UIColor clearColor];
-        
-        jj_debugToggleBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        jj_debugToggleBtn.frame = CGRectMake(0, 0, 60, 28);
-        jj_debugToggleBtn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
-        [jj_debugToggleBtn setTitle:@"Debug" forState:UIControlStateNormal];
-        [jj_debugToggleBtn setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
-        jj_debugToggleBtn.titleLabel.font = [UIFont fontWithName:@"Menlo-Bold" size:11];
-        jj_debugToggleBtn.layer.cornerRadius = 6;
-        [jj_debugToggleBtn addTarget:self action:@selector(jj_reopenDebugWindow) forControlEvents:UIControlEventTouchUpInside];
-        [jj_toggleWindow.rootViewController.view addSubview:jj_debugToggleBtn];
-    }
-    jj_toggleWindow.hidden = NO;
-}
-- (void)jj_reopenDebugWindow {
-    jj_toggleWindow.hidden = YES;
-    jj_toggleWindow = nil;
-    jj_debugVisible = YES;
-    jj_showDebugWindow();
-}
-- (void)jj_clearLog {
-    jj_debugLog = [NSMutableString string];
-    if (jj_debugLogView) jj_debugLogView.text = @"";
-}
-- (void)jj_panDebugWindow:(UIPanGestureRecognizer *)pan {
-    CGPoint t = [pan translationInView:jj_debugContainer.superview];
-    jj_debugContainer.center = CGPointMake(jj_debugContainer.center.x + t.x, jj_debugContainer.center.y + t.y);
-    [pan setTranslation:CGPointZero inView:jj_debugContainer.superview];
-}
-@end
-
-static void jj_dbg(NSString *msg) {
-    if (!jj_debugLog) jj_debugLog = [NSMutableString string];
-    NSDateFormatter *df = [[NSDateFormatter alloc] init];
-    df.dateFormat = @"HH:mm:ss";
-    [jj_debugLog appendFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!jj_debugContainer && jj_debugVisible) jj_showDebugWindow();
-        if (jj_debugLogView) {
-            jj_debugLogView.text = jj_debugLog;
-            [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLog.length, 0)];
-        }
-    });
-}
-
-static void jj_showDebugWindow(void) {
-    CGFloat sw = [UIScreen mainScreen].bounds.size.width;
-    CGFloat sh = [UIScreen mainScreen].bounds.size.height;
-    
-    // 使用独立UIWindow，windowLevel最高，确保在小程序等所有界面都可见可交互
-    jj_debugWindow = [[JJPassthroughWindow alloc] initWithFrame:CGRectMake(0, 0, sw, sh)];
-    jj_debugWindow.windowLevel = 10000000;
-    jj_debugWindow.backgroundColor = [UIColor clearColor];
-    jj_debugWindow.userInteractionEnabled = YES;
-    
-    jj_debugContainer = [[UIView alloc] initWithFrame:CGRectMake(5, 70, sw - 10, 220)];
-    jj_debugContainer.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.8];
-    jj_debugContainer.layer.cornerRadius = 10;
-    jj_debugContainer.clipsToBounds = YES;
-    jj_debugContainer.userInteractionEnabled = YES;
-    
-    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, sw - 10, 32)];
-    titleBar.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.15];
-    [jj_debugContainer addSubview:titleBar];
-    
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 100, 32)];
-    title.text = @"Debug";
-    title.textColor = [UIColor greenColor];
-    title.font = [UIFont fontWithName:@"Menlo-Bold" size:13];
-    [titleBar addSubview:title];
-    
-    UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    clearBtn.frame = CGRectMake(sw - 200, 2, 50, 28);
-    [clearBtn setTitle:@"\u6e05\u9664" forState:UIControlStateNormal];
-    [clearBtn setTitleColor:[UIColor yellowColor] forState:UIControlStateNormal];
-    clearBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    [clearBtn addTarget:[JJDebugHelper shared] action:@selector(jj_clearLog) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:clearBtn];
-    
-    UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    copyBtn.frame = CGRectMake(sw - 140, 2, 50, 28);
-    [copyBtn setTitle:@"\u590d\u5236" forState:UIControlStateNormal];
-    [copyBtn setTitleColor:[UIColor cyanColor] forState:UIControlStateNormal];
-    copyBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    [copyBtn addTarget:[JJDebugHelper shared] action:@selector(jj_copyDebugLog) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:copyBtn];
-    
-    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(sw - 80, 2, 60, 28);
-    [closeBtn setTitle:@"\u5173\u95ed" forState:UIControlStateNormal];
-    [closeBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    [closeBtn addTarget:[JJDebugHelper shared] action:@selector(jj_closeDebugWindow) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:closeBtn];
-    
-    jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(0, 32, sw - 10, 188)];
-    jj_debugLogView.backgroundColor = [UIColor clearColor];
-    jj_debugLogView.textColor = [UIColor greenColor];
-    jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:10];
-    jj_debugLogView.editable = NO;
-    if (jj_debugLog) jj_debugLogView.text = jj_debugLog;
-    [jj_debugContainer addSubview:jj_debugLogView];
-    
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[JJDebugHelper shared] action:@selector(jj_panDebugWindow:)];
-    [titleBar addGestureRecognizer:pan];
-    
-    [jj_debugWindow addSubview:jj_debugContainer];
-    jj_debugWindow.hidden = NO;
-    jj_debugVisible = YES;
-}
-
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
 + (instancetype)sharedInstance;
@@ -275,7 +113,6 @@ static void jj_showDebugWindow(void) {
     BOOL hasHongbaoUrl = ([content rangeOfString:@"wxpay://c2cbizmessagehandler/hongbao"].location != NSNotFound);
     
     if (hasHongbaoUrl) {
-        jj_dbg([NSString stringWithFormat:@"[分发] 红包消息 from=%@", msgWrap.m_nsFromUsr]);
         [self jj_processRedBagMessage:msgWrap];
         return;
     }
@@ -294,14 +131,12 @@ static void jj_showDebugWindow(void) {
     }
     
     if (isTransferMsg) {
-        jj_dbg([NSString stringWithFormat:@"[分发] 转账消息 from=%@", msgWrap.m_nsFromUsr]);
         [self jj_processTransferMessage:msgWrap];
         return;
     }
     
     // 兜底：其他wxpay://消息也当红包处理
     if ([content rangeOfString:@"wxpay://"].location != NSNotFound) {
-        jj_dbg([NSString stringWithFormat:@"[分发] wxpay消息(兜底) from=%@", msgWrap.m_nsFromUsr]);
         [self jj_processRedBagMessage:msgWrap];
         return;
     }
@@ -349,13 +184,11 @@ static void jj_showDebugWindow(void) {
     
     // 检查是否应该抢这个红包（模式判断）
     if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
-        jj_dbg([NSString stringWithFormat:@"[红包] 跳过(模式不匹配) chatId=%@", chatId]);
         return;
     }
     
     // 私聊红包判断
     if (!isGroup && !manager.grabPrivateEnabled) {
-        jj_dbg(@"[红包] 跳过(私聊未启用)");
         return;
     }
     
@@ -406,7 +239,6 @@ static void jj_showDebugWindow(void) {
     context[@"content"] = title; // 红包标题
     
     // 执行抢红包
-    jj_dbg([NSString stringWithFormat:@"[红包] 检测到红包 delay=%.1fs isGroup=%d isSelf=%d chatId=%@", delay, isGroup, isGroupSender, chatId]);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [self jj_openRedBagWithContext:context];
     });
@@ -479,12 +311,8 @@ static void jj_showDebugWindow(void) {
                                               getService:objc_getClass("WCRedEnvelopesLogicMgr")];
         if (logicMgr) {
             [logicMgr ReceiverQueryRedEnvelopesRequest:reqParams];
-            jj_dbg([NSString stringWithFormat:@"[红包] 已发送查询请求 sendId=%@", sendId]);
-        } else {
-            jj_dbg(@"[红包] ❌ 无法获取WCRedEnvelopesLogicMgr");
         }
     } @catch (NSException *exception) {
-        jj_dbg([NSString stringWithFormat:@"[红包] ❌ openRedBag异常=%@", exception.reason]);
     }
 }
 
@@ -622,7 +450,6 @@ static void jj_showDebugWindow(void) {
             feeStr = [feeStr stringByReplacingOccurrencesOfString:@"￥" withString:@""];
             double yuan = [feeStr doubleValue];
             amountStr = [NSString stringWithFormat:@"%lld", (long long)(yuan * 100)];
-            jj_dbg([NSString stringWithFormat:@"[金额] feeDesc=%@ → %@分 → %.2f元", rawFeeDesc, amountStr, yuan]);
         }
         
         id rawMemo = [payInfo performSelector:@selector(m_payMemo)];
@@ -663,35 +490,28 @@ static void jj_showDebugWindow(void) {
             for (unsigned int i = 0; i < pcount; i++) {
                 NSString *pname = [NSString stringWithUTF8String:property_getName(props[i])];
                 if ([[pname lowercaseString] containsString:@"fee"] || [[pname lowercaseString] containsString:@"amount"] || [[pname lowercaseString] containsString:@"money"]) {
-                    @try {
-                        id val = [payInfo valueForKey:pname];
-                        jj_dbg([NSString stringWithFormat:@"[金额] %@=%@", pname, val]);
-                    } @catch (NSException *e) {}
+                    // property dump (no-op in release)
                 }
             }
             free(props);
         } @catch (NSException *e) {}
     }
-    jj_dbg([NSString stringWithFormat:@"[收款] 检测到转账 金额=%@ from=%@", amountStr, fromUserCopy]);
     
     // 直接执行自动收款（不延迟）
     @try {
         WCPayLogicMgr *payLogicMgr = (WCPayLogicMgr *)jj_cachedPayLogicMgr;
-        jj_dbg([NSString stringWithFormat:@"[收款] cachedPayLogicMgr=%@", payLogicMgr ? @"有" : @"无"]);
         if (!payLogicMgr) {
             @try {
                 payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                getService:objc_getClass("WCPayLogicMgr")];
                 if (payLogicMgr) jj_cachedPayLogicMgr = payLogicMgr;
-                jj_dbg([NSString stringWithFormat:@"[收款] MMServiceCenter获取=%@", payLogicMgr ? @"成功" : @"失败"]);
             } @catch (NSException *e) {
-                jj_dbg([NSString stringWithFormat:@"[收款] MMServiceCenter异常=%@", e.reason]);
             }
         }
-        if (!payLogicMgr) { jj_dbg(@"[收款] ❌ 无法获取WCPayLogicMgr"); return; }
+        if (!payLogicMgr) { return; }
         
         WCPayConfirmTransferRequest *request = [[objc_getClass("WCPayConfirmTransferRequest") alloc] init];
-        if (!request) { jj_dbg(@"[收款] ❌ 创建Request失败"); return; }
+        if (!request) { return; }
         request.m_nsTransferID = transferIdCopy;
         request.m_nsFromUserName = payerUsernameCopy;
         request.m_uiInvalidTime = invalidTime;
@@ -705,7 +525,6 @@ static void jj_showDebugWindow(void) {
         }
         
         [payLogicMgr ConfirmTransferMoney:request];
-        jj_dbg(@"[收款] ✅ ConfirmTransferMoney已调用");
         
         // 更新累计金额
         [[JJRedBagManager sharedManager] setTotalReceiveAmount:[[JJRedBagManager sharedManager] totalReceiveAmount] + amountValue];
@@ -716,7 +535,6 @@ static void jj_showDebugWindow(void) {
         // 自动回复（使用AddMsg:MsgWrap:发送文本消息）
         BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
         if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
-            jj_dbg([NSString stringWithFormat:@"[回复] 群聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
             @try {
                 NSString *selfUsr = confirmParams[@"selfUser"];
                 CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
@@ -726,10 +544,8 @@ static void jj_showDebugWindow(void) {
                 replyWrap.m_uiStatus = 1;
                 replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
                 [self AddMsg:fromUserCopy MsgWrap:replyWrap];
-                jj_dbg(@"[回复] ✅ 群聊回复已发送");
-            } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
+            } @catch (NSException *e) {}
         } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
-            jj_dbg([NSString stringWithFormat:@"[回复] 私聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
             @try {
                 NSString *selfUsr = confirmParams[@"selfUser"];
                 CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
@@ -739,12 +555,7 @@ static void jj_showDebugWindow(void) {
                 replyWrap.m_uiStatus = 1;
                 replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
                 [self AddMsg:fromUserCopy MsgWrap:replyWrap];
-                jj_dbg(@"[回复] ✅ 私聊回复已发送");
-            } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
-        } else {
-            jj_dbg([NSString stringWithFormat:@"[回复] 跳过 isGroup=%d gReply=%d pReply=%d content=%@",
-                isGroupChat, mgr.receiveAutoReplyGroupEnabled, mgr.receiveAutoReplyPrivateEnabled,
-                mgr.receiveAutoReplyContent.length > 0 ? mgr.receiveAutoReplyContent : @"空"]);
+            } @catch (NSException *e) {}
         }
         
         // 发送通知（使用AddMsg:MsgWrap:）
@@ -753,7 +564,6 @@ static void jj_showDebugWindow(void) {
             NSMutableString *notifyMsg = [NSMutableString string];
             [notifyMsg appendFormat:@"收到一笔转账：\n金额：%.2f元", amountYuan];
             if (memo.length > 0) [notifyMsg appendFormat:@"\n备注：%@", memo];
-            jj_dbg([NSString stringWithFormat:@"[通知] to=%@", mgr.receiveNotificationChatId]);
             @try {
                 NSString *selfUsr = confirmParams[@"selfUser"];
                 CMessageWrap *notifyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
@@ -763,8 +573,7 @@ static void jj_showDebugWindow(void) {
                 notifyWrap.m_uiStatus = 1;
                 notifyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
                 [self AddMsg:mgr.receiveNotificationChatId MsgWrap:notifyWrap];
-                jj_dbg(@"[通知] ✅ 通知已发送");
-            } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[通知] ❌ 异常=%@", e.reason]); }
+            } @catch (NSException *e) {}
         }
         
         // 本地弹窗通知
@@ -772,7 +581,6 @@ static void jj_showDebugWindow(void) {
             [self jj_sendReceiveLocalNotification:confirmParams amount:amountValue];
         }
     } @catch (NSException *e) {
-        jj_dbg([NSString stringWithFormat:@"[收款] ❌ 整体异常=%@", e.reason]);
     }
     } @catch (NSException *e) {}
 }
@@ -934,7 +742,6 @@ static void jj_showDebugWindow(void) {
 - (instancetype)init {
     id result = %orig;
     jj_cachedPayLogicMgr = result;
-    jj_dbg(@"[缓存] WCPayLogicMgr init已缓存");
     return result;
 }
 
@@ -1175,25 +982,22 @@ static void jj_stopAllBackgroundModes(void) {
         // 处理查询请求的响应 (cgiCmdid == 3)
         if (response.cgiCmdid == 3) {
             JJRedBagParam *param = [[JJRedBagParamQueue sharedQueue] dequeue];
-            if (!param) { jj_dbg(@"[红包] 查询响应: 队列为空"); return; }
+            if (!param) { return; }
             
             NSInteger receiveStatus = [responseDict[@"receiveStatus"] integerValue];
             NSInteger hbStatus = [responseDict[@"hbStatus"] integerValue];
-            jj_dbg([NSString stringWithFormat:@"[红包] 查询响应 receiveStatus=%ld hbStatus=%ld sendId=%@", (long)receiveStatus, (long)hbStatus, param.sendId]);
             
             if (receiveStatus == 2) {
                 if (param.sendId) [manager.pendingRedBags removeObjectForKey:param.sendId];
-                jj_dbg(@"[红包] 跳过(已领取)");
                 return;
             }
             
             if (hbStatus == 4) {
                 if (param.sendId) [manager.pendingRedBags removeObjectForKey:param.sendId];
-                jj_dbg(@"[红包] 跳过(已抢完/过期)");
                 return;
             }
             
-            if (!responseDict[@"timingIdentifier"]) { jj_dbg(@"[红包] ❌ 无timingIdentifier"); return; }
+            if (!responseDict[@"timingIdentifier"]) { return; }
             
             param.timingIdentifier = responseDict[@"timingIdentifier"];
             NSTimeInterval delay = [manager getDelayTimeForChat:param.sessionUserName];
@@ -1202,13 +1006,11 @@ static void jj_stopAllBackgroundModes(void) {
                 unsigned int delayMs = (unsigned int)(delay * 1000);
                 JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
                 [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
-                jj_dbg([NSString stringWithFormat:@"[红包] 已加入队列 delay=%ums", delayMs]);
             } else {
                 WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                                       getService:objc_getClass("WCRedEnvelopesLogicMgr")];
                 if (logicMgr) {
                     [logicMgr OpenRedEnvelopesRequest:[param toParams]];
-                    jj_dbg(@"[红包] ✅ 极速模式已发送拆包请求");
                 }
             }
             
@@ -1232,7 +1034,6 @@ static void jj_stopAllBackgroundModes(void) {
             
             // 检查是否抢到金额
             long long amount = [responseDict[@"amount"] longLongValue];
-            jj_dbg([NSString stringWithFormat:@"[红包] 拆包响应 sendId=%@ amount=%lld", sendId, amount]);
             if (amount > 0) {
                 long long totalAmount = [responseDict[@"totalAmount"] longLongValue];
                 param.totalAmount = totalAmount;
@@ -1240,7 +1041,6 @@ static void jj_stopAllBackgroundModes(void) {
                 manager.totalAmount += amount;
                 [manager saveSettings];
                 
-                jj_dbg([NSString stringWithFormat:@"[红包] ✅ 抢到 %.2f元 累计%.2f元", amount/100.0, manager.totalAmount/100.0]);
                 
                 JJRedBagParam *paramCopy = param;
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -1249,11 +1049,8 @@ static void jj_stopAllBackgroundModes(void) {
                         [self jj_sendNotification:paramCopy amount:amount];
                         [self jj_sendLocalNotification:paramCopy amount:amount];
                     } @catch (NSException *exception) {
-                        jj_dbg([NSString stringWithFormat:@"[红包] ❌ 回复/通知异常=%@", exception.reason]);
                     }
                 });
-            } else {
-                jj_dbg(@"[红包] 未抢到(金额=0)");
             }
         }
         
@@ -1632,54 +1429,41 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     @try {
         NSData *data = msgWrap.m_dtEmoticonData;
         if (data && [data isKindOfClass:[NSData class]] && data.length > 0) {
-            jj_dbg([NSString stringWithFormat:@"[表情策略1] ✅ m_dtEmoticonData=%lu bytes isGIF=%d", (unsigned long)data.length, jj_isGIFData(data)]);
             return data;
         }
-        jj_dbg(@"[表情策略1] m_dtEmoticonData=空");
-    } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[表情策略1] 异常=%@", e.reason]); }
+    } @catch (NSException *e) {}
     
     // === 策略2：通过CEmoticonMgr内部API获取 ===
     NSString *md5 = msgWrap.m_nsEmoticonMD5;
-    jj_dbg([NSString stringWithFormat:@"[表情策略2] md5=%@", md5 ?: @"空"]);
     if (md5 && md5.length > 0) {
         // 2a: getEmoticonWrapByMd5
         @try {
             CEmoticonMgr *emoticonMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CEmoticonMgr")];
-            BOOL hasMethod = [emoticonMgr respondsToSelector:@selector(getEmoticonWrapByMd5:)];
-            jj_dbg([NSString stringWithFormat:@"[表情策略2a] emoticonMgr=%@ hasMethod=%d", emoticonMgr ? @"有" : @"无", hasMethod]);
-            if (emoticonMgr && hasMethod) {
+            if (emoticonMgr && [emoticonMgr respondsToSelector:@selector(getEmoticonWrapByMd5:)]) {
                 CEmoticonWrap *wrap = [emoticonMgr getEmoticonWrapByMd5:md5];
-                jj_dbg([NSString stringWithFormat:@"[表情策略2a] wrap=%@ imageData=%lu", wrap ? NSStringFromClass([wrap class]) : @"nil", (unsigned long)(wrap.m_imageData.length)]);
                 if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) {
-                    jj_dbg([NSString stringWithFormat:@"[表情策略2a] ✅ isGIF=%d", jj_isGIFData(wrap.m_imageData)]);
                     return wrap.m_imageData;
                 }
             }
-        } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[表情策略2a] 异常=%@", e.reason]); }
+        } @catch (NSException *e) {}
         
         // 2b: GetEmoticonByMD5
         @try {
             Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
-            BOOL hasClassMethod = [emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)];
-            jj_dbg([NSString stringWithFormat:@"[表情策略2b] hasClassMethod=%d", hasClassMethod]);
-            if (hasClassMethod) {
+            if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
                 id result = [emoticonMgrClass GetEmoticonByMD5:md5];
-                jj_dbg([NSString stringWithFormat:@"[表情策略2b] result=%@ class=%@",
-                    result ? @"有" : @"nil", result ? NSStringFromClass([result class]) : @"-"]);
                 if (result) {
                     if ([result respondsToSelector:@selector(m_imageData)]) {
                         NSData *imgData = [result performSelector:@selector(m_imageData)];
-                        jj_dbg([NSString stringWithFormat:@"[表情策略2b] m_imageData=%lu isGIF=%d",
-                            (unsigned long)imgData.length, imgData ? jj_isGIFData(imgData) : NO]);
-                        if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0 && jj_isGIFData(imgData)) {
-                            return imgData;
-                        }
+                        if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0) return imgData;
                     }
-                    // 不要返回UIImage转PNG（静态图），留给后面策略找GIF
-                    jj_dbg(@"[表情策略2b] 跳过非GIF数据");
+                    if ([result isKindOfClass:[UIImage class]]) {
+                        NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
+                        if (pngData && pngData.length > 0) return pngData;
+                    }
                 }
             }
-        } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[表情策略2b] 异常=%@", e.reason]); }
+        } @catch (NSException *e) {}
     }
     
     // === 策略3：从正在显示的UIImageView中直接抓取 ===
@@ -1690,23 +1474,14 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
         }
         UIView *searchRoot = emoticonView ?: cellView;
         UIImageView *imageView = jj_findImageViewInView(searchRoot);
-        jj_dbg([NSString stringWithFormat:@"[表情策略3] imageView=%@ class=%@", imageView ? @"有" : @"无",
-            imageView ? NSStringFromClass([imageView class]) : @"-"]);
         
         if (imageView) {
-            BOOL hasAnimatedImage = [imageView respondsToSelector:@selector(animatedImage)];
-            BOOL hasAnimatedData = [imageView respondsToSelector:@selector(animatedImageData)];
-            jj_dbg([NSString stringWithFormat:@"[表情策略3] animatedImage=%d animatedImageData=%d", hasAnimatedImage, hasAnimatedData]);
-            
             @try {
-                if (hasAnimatedImage) {
+                if ([imageView respondsToSelector:@selector(animatedImage)]) {
                     id animatedImage = [imageView performSelector:@selector(animatedImage)];
-                    jj_dbg([NSString stringWithFormat:@"[表情策略3] animatedImage obj=%@ class=%@",
-                        animatedImage ? @"有" : @"nil", animatedImage ? NSStringFromClass([animatedImage class]) : @"-"]);
                     if (animatedImage && [animatedImage respondsToSelector:@selector(animatedImageData)]) {
                         NSData *gifData = [animatedImage performSelector:@selector(animatedImageData)];
                         if (gifData && [gifData isKindOfClass:[NSData class]] && gifData.length > 0 && jj_isGIFData(gifData)) {
-                            jj_dbg([NSString stringWithFormat:@"[表情策略3] ✅ GIF from animatedImage %lu bytes", (unsigned long)gifData.length]);
                             return gifData;
                         }
                     }
@@ -1714,10 +1489,9 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             } @catch (NSException *e) {}
             
             @try {
-                if (hasAnimatedData) {
+                if ([imageView respondsToSelector:@selector(animatedImageData)]) {
                     NSData *gifData = [imageView performSelector:@selector(animatedImageData)];
                     if (gifData && [gifData isKindOfClass:[NSData class]] && gifData.length > 0 && jj_isGIFData(gifData)) {
-                        jj_dbg([NSString stringWithFormat:@"[表情策略3] ✅ GIF from imageView %lu bytes", (unsigned long)gifData.length]);
                         return gifData;
                     }
                 }
@@ -1725,11 +1499,7 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             
             @try {
                 UIImage *img = imageView.image;
-                BOOL imgHasAnimData = [img respondsToSelector:@selector(animatedImageData)];
-                NSUInteger imgCount = img.images ? img.images.count : 0;
-                jj_dbg([NSString stringWithFormat:@"[表情策略3] image=%@ animData=%d frames=%lu",
-                    img ? @"有" : @"nil", imgHasAnimData, (unsigned long)imgCount]);
-                if (img && imgHasAnimData) {
+                if (img && [img respondsToSelector:@selector(animatedImageData)]) {
                     NSData *gifData = [img performSelector:@selector(animatedImageData)];
                     if (gifData && [gifData isKindOfClass:[NSData class]] && gifData.length > 0 && jj_isGIFData(gifData)) {
                         return gifData;
@@ -1737,13 +1507,10 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
                 }
             } @catch (NSException *e) {}
             
-            // 静态图片（暂不返回，让策略4/5有机会找GIF）
+            // 静态图片回退
             if (imageView.image) {
                 NSData *pngData = UIImagePNGRepresentation(imageView.image);
-                jj_dbg([NSString stringWithFormat:@"[表情策略3] 暂存静态图 %lu bytes（等GIF策略）", (unsigned long)pngData.length]);
-                if (pngData && pngData.length > 0) {
-                    objc_setAssociatedObject(cellView, "jj_fallbackData", pngData, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                }
+                if (pngData && pngData.length > 0) return pngData;
             }
         }
     } @catch (NSException *e) {}
@@ -1752,24 +1519,13 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     @try {
         NSString *imgPath = msgWrap.m_nsImgPath;
         NSString *thumbPath = msgWrap.m_nsThumbImgPath;
-        jj_dbg([NSString stringWithFormat:@"[表情策略4] imgPath=%@ thumbPath=%@", imgPath ?: @"空", thumbPath ?: @"空"]);
         if (imgPath && imgPath.length > 0) {
             NSData *fileData = [NSData dataWithContentsOfFile:imgPath];
-            BOOL isGIF = fileData ? jj_isGIFData(fileData) : NO;
-            jj_dbg([NSString stringWithFormat:@"[表情策略4] imgPath %lu bytes isGIF=%d", (unsigned long)(fileData.length), isGIF]);
-            if (fileData && fileData.length > 0 && isGIF) {
-                jj_dbg(@"[表情策略4] ✅ 返回GIF");
-                return fileData;
-            }
+            if (fileData && fileData.length > 0) return fileData;
         }
         if (thumbPath && thumbPath.length > 0) {
             NSData *fileData = [NSData dataWithContentsOfFile:thumbPath];
-            BOOL isGIF = fileData ? jj_isGIFData(fileData) : NO;
-            jj_dbg([NSString stringWithFormat:@"[表情策略4] thumbPath %lu bytes isGIF=%d", (unsigned long)(fileData.length), isGIF]);
-            if (fileData && fileData.length > 0 && isGIF) {
-                jj_dbg(@"[表情策略4] ✅ 返回GIF");
-                return fileData;
-            }
+            if (fileData && fileData.length > 0) return fileData;
         }
     } @catch (NSException *e) {}
     
@@ -1777,11 +1533,7 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     if (md5 && md5.length > 0) {
         NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
         NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-        NSString *homePath = NSHomeDirectory();
-        jj_dbg([NSString stringWithFormat:@"[表情策略5] home=%@", homePath]);
-        
-        // 固定路径列表
-        NSMutableArray *searchPaths = [NSMutableArray arrayWithArray:@[
+        NSArray *searchPaths = @[
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@", md5]],
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@.gif", md5]],
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@", md5]],
@@ -1790,55 +1542,17 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@.gif", md5]],
             [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"emoticonTmp/%@", md5]],
             [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"emoticonTmp/%@.gif", md5]],
-        ]];
-        
-        // 递归搜索sandbox中包含md5的文件
-        @try {
-            NSFileManager *fm = [NSFileManager defaultManager];
-            NSArray *topDirs = @[docPath, cachePath, [homePath stringByAppendingPathComponent:@"tmp"]];
-            for (NSString *topDir in topDirs) {
-                NSDirectoryEnumerator *enumer = [fm enumeratorAtPath:topDir];
-                NSString *file;
-                int count = 0;
-                while ((file = [enumer nextObject]) && count < 5000) {
-                    count++;
-                    if ([file containsString:md5]) {
-                        NSString *fullPath = [topDir stringByAppendingPathComponent:file];
-                        BOOL isDir = NO;
-                        [fm fileExistsAtPath:fullPath isDirectory:&isDir];
-                        if (!isDir) {
-                            [searchPaths addObject:fullPath];
-                            jj_dbg([NSString stringWithFormat:@"[表情策略5] 发现文件: %@", file]);
-                        }
-                    }
-                }
-            }
-        } @catch (NSException *e) {}
-        
+        ];
         for (NSString *path in searchPaths) {
             @try {
-                BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
-                if (exists) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
                     NSData *fileData = [NSData dataWithContentsOfFile:path];
-                    BOOL isGIF = fileData ? jj_isGIFData(fileData) : NO;
-                    jj_dbg([NSString stringWithFormat:@"[表情策略5] 找到 %@ %lu bytes isGIF=%d", [path lastPathComponent], (unsigned long)fileData.length, isGIF]);
-                    if (fileData && fileData.length > 0 && isGIF) {
-                        jj_dbg(@"[表情策略5] ✅ 返回GIF数据");
-                        return fileData;
-                    }
+                    if (fileData && fileData.length > 0) return fileData;
                 }
             } @catch (NSException *e) {}
         }
-        jj_dbg(@"[表情策略5] 未找到GIF文件");
     }
     
-    // 所有GIF策略失败，回退到暂存的静态图
-    NSData *fallbackData = objc_getAssociatedObject(cellView, "jj_fallbackData");
-    if (fallbackData && fallbackData.length > 0) {
-        jj_dbg([NSString stringWithFormat:@"[表情] 回退静态图 %lu bytes", (unsigned long)fallbackData.length]);
-        return fallbackData;
-    }
-    jj_dbg(@"[表情] 所有策略均未获取到数据");
     return nil;
 }
 
@@ -2222,8 +1936,6 @@ static void jj_showScaleActionSheet(void) {
 %new
 - (void)jj_onEmoticonResize {
     @try {
-        jj_dbg(@"[表情] 点击大大小小");
-        
         // 通过getMsgCmessageWrap获取CMessageWrap
         CMessageWrap *msgWrap = nil;
         if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
@@ -2236,8 +1948,6 @@ static void jj_showScaleActionSheet(void) {
             if (vm && [vm respondsToSelector:@selector(messageWrap)]) msgWrap = [vm performSelector:@selector(messageWrap)];
         }
         
-        jj_dbg([NSString stringWithFormat:@"[表情] msgWrap=%@ content=%@", msgWrap ? @"有" : @"无", msgWrap.m_nsContent.length > 30 ? [msgWrap.m_nsContent substringToIndex:30] : msgWrap.m_nsContent]);
-        
         if (!msgWrap || !msgWrap.m_nsContent || msgWrap.m_nsContent.length == 0) return;
         
         // 保存全局状态
@@ -2248,12 +1958,9 @@ static void jj_showScaleActionSheet(void) {
         jj_currentEmoticonData = nil;
         jj_currentIsGIF = NO;
         
-        jj_dbg([NSString stringWithFormat:@"[表情] chatUser=%@ md5=%@", jj_currentChatUserName ?: @"空", msgWrap.m_nsEmoticonMD5 ?: @"空"]);
-        
         // 立即从视图中抓取表情数据并缓存到临时文件
         jj_deleteCachedEmoticon();
         NSData *capturedData = jj_captureEmoticonFromView(self, msgWrap);
-        jj_dbg([NSString stringWithFormat:@"[表情] 抓取数据=%@ bytes", capturedData ? @(capturedData.length) : @"nil"]);
         if (capturedData && capturedData.length > 0) {
             jj_cacheEmoticonData(capturedData);
         }
@@ -2267,7 +1974,6 @@ static void jj_showScaleActionSheet(void) {
             jj_showScaleActionSheet();
         });
     } @catch (NSException *exception) {
-        jj_dbg([NSString stringWithFormat:@"[表情] ❌ 异常=%@", exception.reason]);
     }
 }
 
@@ -2385,29 +2091,21 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 static CGFloat jj_adTimerSpeedMultiplier = 1.0;
 static BOOL jj_adSpeedActive = NO;
 static NSInteger jj_adToolbarTag = 88990011;
-static JJPassthroughWindow *jj_adToolbarWindow = nil;
 
 static void jj_removeAdToolbar(UIViewController *vc) {
-    jj_adToolbarWindow.hidden = YES;
-    jj_adToolbarWindow = nil;
+    UIView *toolbar = [vc.view viewWithTag:jj_adToolbarTag];
+    if (toolbar) [toolbar removeFromSuperview];
     jj_adSpeedActive = NO;
     jj_adTimerSpeedMultiplier = 1.0;
 }
 
 static void jj_addAdToolbar(WAWebViewController *vc) {
-    if (jj_adToolbarWindow) return;
+    if ([vc.view viewWithTag:jj_adToolbarTag]) return;
     
-    CGFloat screenW = [UIScreen mainScreen].bounds.size.width;
-    CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
+    CGFloat screenW = vc.view.bounds.size.width;
     CGFloat btnW = 60, btnH = 36, spacing = 8, totalW = btnW * 3 + spacing * 2;
     CGFloat startX = (screenW - totalW) / 2.0;
     CGFloat topY = 44;
-    
-    // 使用独立Window承载工具栏，确保不被广告overlay遮挡
-    jj_adToolbarWindow = [[JJPassthroughWindow alloc] initWithFrame:CGRectMake(0, 0, screenW, screenH)];
-    jj_adToolbarWindow.windowLevel = 10000002;
-    jj_adToolbarWindow.backgroundColor = [UIColor clearColor];
-    jj_adToolbarWindow.userInteractionEnabled = YES;
     
     UIView *toolbar = [[UIView alloc] initWithFrame:CGRectMake(startX - 12, topY, totalW + 24, btnH + 16)];
     toolbar.tag = jj_adToolbarTag;
@@ -2435,8 +2133,8 @@ static void jj_addAdToolbar(WAWebViewController *vc) {
         [toolbar addSubview:btn];
     }
     
-    [jj_adToolbarWindow addSubview:toolbar];
-    jj_adToolbarWindow.hidden = NO;
+    [vc.view addSubview:toolbar];
+    [vc.view bringSubviewToFront:toolbar];
 }
 
 // 递归查找包含指定子串的Label
@@ -2470,57 +2168,15 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     
     // 检测广告倒计时标签是否存在（"X 秒后可获得奖励"）
     UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
-    if (adLabel && !jj_adToolbarWindow) {
-        jj_dbg([NSString stringWithFormat:@"[广告] 检测到倒计时: %@", adLabel.text]);
+    if (adLabel && ![self.view viewWithTag:jj_adToolbarTag]) {
         jj_addAdToolbar(self);
     }
     
-    // 广告自然完成时：自动点击关闭按钮并移除工具栏
-    UILabel *doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
-    if (!doneLabel) doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u5b8c\u6210");
-    if (!doneLabel) doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u9886\u53d6");
-    if (doneLabel) {
-        static NSTimeInterval jj_lastAutoCloseTime = 0;
-        if (now - jj_lastAutoCloseTime > 2.0) {
-            jj_lastAutoCloseTime = now;
-            jj_dbg([NSString stringWithFormat:@"[广告] 检测到完成: %@，自动关闭", doneLabel.text]);
-            
-            // 找overlay并点击关闭按钮
-            UIView *overlay = doneLabel.superview;
-            while (overlay && overlay != self.view) {
-                if (overlay.superview == self.view || overlay.subviews.count >= 3) break;
-                overlay = overlay.superview;
-            }
-            if (overlay && overlay != self.view && overlay.subviews.count > 0) {
-                UIView *closeArea = overlay.subviews[0];
-                // 触发手势
-                for (UIGestureRecognizer *g in closeArea.gestureRecognizers) {
-                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
-                        jj_dbg(@"[广告] 自动触发关闭手势");
-                    }
-                }
-                for (UIGestureRecognizer *g in overlay.gestureRecognizers) {
-                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
-                    }
-                }
-                [closeArea accessibilityActivate];
-            }
-            
-            // 同时发送JSBridge事件
-            @try {
-                SEL bothSel = @selector(sendEventToJSBridgeAndService:Param:);
-                SEL bridgeSel = @selector(sendEventToJSBridge:Param:);
-                NSDictionary *param = @{@"isEnded": @YES};
-                if ([self respondsToSelector:bothSel]) {
-                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bothSel, @"onRewardedVideoAdClose", param);
-                } else if ([self respondsToSelector:bridgeSel]) {
-                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bridgeSel, @"onRewardedVideoAdClose", param);
-                }
-            } @catch (NSException *e) {}
-            
-            if (jj_adToolbarWindow) jj_removeAdToolbar(self);
+    // 广告自然完成时移除工具栏（"已获得奖励"）
+    if (!adLabel && [self.view viewWithTag:jj_adToolbarTag]) {
+        UILabel *doneLabel = jj_findLabelContaining(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
+        if (doneLabel) {
+            jj_removeAdToolbar(self);
         }
     }
 }
@@ -2535,116 +2191,24 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     NSInteger idx = sender.tag - 9900;
     
     if (idx == 2) {
-        jj_dbg(@"[广告] 点击跳过广告");
-        
-        // 找到广告overlay
-        UIView *overlay = nil;
-        UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
-        if (!adLabel) adLabel = jj_findLabelContaining(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
-        if (!adLabel) adLabel = jj_findLabelContaining(self.view, @"\u5df2\u5b8c\u6210");
-        if (adLabel) {
-            overlay = adLabel.superview;
-            while (overlay && overlay != self.view) {
-                if (overlay.superview == self.view || overlay.subviews.count >= 3) break;
-                overlay = overlay.superview;
-            }
-        }
-        
-        // === 策略1(核心)：模拟点击关闭按钮区域（overlay第一个子视图） ===
-        @try {
-            if (overlay && overlay != self.view && overlay.subviews.count > 0) {
-                UIView *closeArea = overlay.subviews[0];
-                jj_dbg([NSString stringWithFormat:@"[广告] 策略1: 关闭区域 class=%@ frame=%.0f,%.0f,%.0f,%.0f",
-                    NSStringFromClass([closeArea class]),
-                    closeArea.frame.origin.x, closeArea.frame.origin.y,
-                    closeArea.frame.size.width, closeArea.frame.size.height]);
-                
-                // dump手势识别器
-                NSArray *gestures = closeArea.gestureRecognizers;
-                jj_dbg([NSString stringWithFormat:@"[广告] 关闭区域手势数: %lu", (unsigned long)gestures.count]);
-                for (UIGestureRecognizer *g in gestures) {
-                    jj_dbg([NSString stringWithFormat:@"[广告] 手势: %@ target=%@",
-                        NSStringFromClass([g class]),
-                        [g valueForKey:@"_targets"]]);
-                }
-                // 也dump overlay自身的手势
-                NSArray *overlayGestures = overlay.gestureRecognizers;
-                jj_dbg([NSString stringWithFormat:@"[广告] overlay手势数: %lu", (unsigned long)overlayGestures.count]);
-                for (UIGestureRecognizer *g in overlayGestures) {
-                    jj_dbg([NSString stringWithFormat:@"[广告] overlay手势: %@ target=%@",
-                        NSStringFromClass([g class]),
-                        [g valueForKey:@"_targets"]]);
-                }
-                
-                // 触发手势识别器
-                for (UIGestureRecognizer *g in gestures) {
-                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-                        jj_dbg(@"[广告] 策略1: 触发tap手势");
-                        // 通过设置state来触发
-                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
-                    }
-                }
-                for (UIGestureRecognizer *g in overlayGestures) {
-                    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-                        jj_dbg(@"[广告] 策略1: 触发overlay tap手势");
-                        [g setValue:@(UIGestureRecognizerStateEnded) forKey:@"state"];
-                    }
-                }
-                
-                // 模拟触摸事件：在关闭按钮中心发送touch
-                CGPoint center = CGPointMake(CGRectGetMidX(closeArea.frame), CGRectGetMidY(closeArea.frame));
-                CGPoint screenPoint = [closeArea.superview convertPoint:center toView:nil];
-                jj_dbg([NSString stringWithFormat:@"[广告] 策略1: 模拟点击 screen=(%.0f,%.0f)", screenPoint.x, screenPoint.y]);
-                
-                // 通过accessibilityActivate尝试
-                [closeArea accessibilityActivate];
-                
-                // 通过hitTest找到响应者并发送touch
-                UIView *hitView = [self.view hitTest:[self.view convertPoint:screenPoint fromView:nil] withEvent:nil];
-                if (hitView) {
-                    jj_dbg([NSString stringWithFormat:@"[广告] 策略1: hitTest命中 %@", NSStringFromClass([hitView class])]);
-                    [hitView accessibilityActivate];
-                }
-            }
-        } @catch (NSException *e) {
-            jj_dbg([NSString stringWithFormat:@"[广告] 策略1异常: %@", e.reason]);
-        }
-        
-        // === 策略2：通过JSBridge通知小程序广告已完成 ===
-        @try {
-            SEL bridgeSel = @selector(sendEventToJSBridge:Param:);
-            SEL serviceSel = @selector(sendEventToService:Param:);
-            SEL bothSel = @selector(sendEventToJSBridgeAndService:Param:);
-            
-            NSDictionary *rewardParam = @{@"isEnded": @YES, @"errCode": @0, @"errMsg": @"onClose:ok"};
-            NSArray *eventNames = @[@"onRewardedVideoAdClose", @"onAdClose", @"rewardedVideoAdClose"];
-            
-            for (NSString *eventName in eventNames) {
-                if ([self respondsToSelector:bothSel]) {
-                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bothSel, eventName, rewardParam);
-                } else {
-                    if ([self respondsToSelector:bridgeSel])
-                        ((void (*)(id, SEL, id, id))objc_msgSend)(self, bridgeSel, eventName, rewardParam);
-                    if ([self respondsToSelector:serviceSel])
-                        ((void (*)(id, SEL, id, id))objc_msgSend)(self, serviceSel, eventName, rewardParam);
-                }
-            }
-            jj_dbg(@"[广告] 策略2: JSBridge事件已发送");
-        } @catch (NSException *e) {}
-        
-        // === 策略3：调用onGameRewards ===
+        // 跳过广告
         @try {
             if ([self respondsToSelector:@selector(onGameRewards)]) {
                 [self onGameRewards];
-                jj_dbg(@"[广告] 策略3: onGameRewards已调用");
             }
         } @catch (NSException *e) {}
         
-        // === 策略4：直接移除广告overlay ===
         @try {
-            if (overlay && overlay != self.view) {
-                [overlay removeFromSuperview];
-                jj_dbg(@"[广告] 策略4: 已移除广告overlay");
+            SEL bridgeSel = @selector(sendEventToJSBridge:Param:);
+            SEL bothSel = @selector(sendEventToJSBridgeAndService:Param:);
+            NSDictionary *rewardParam = @{@"isEnded": @YES, @"errCode": @0, @"errMsg": @"onClose:ok"};
+            NSArray *eventNames = @[@"onRewardedVideoAdClose", @"onAdClose", @"rewardedVideoAdClose"];
+            for (NSString *eventName in eventNames) {
+                if ([self respondsToSelector:bothSel]) {
+                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bothSel, eventName, rewardParam);
+                } else if ([self respondsToSelector:bridgeSel]) {
+                    ((void (*)(id, SEL, id, id))objc_msgSend)(self, bridgeSel, eventName, rewardParam);
+                }
             }
         } @catch (NSException *e) {}
         
@@ -2656,7 +2220,6 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     CGFloat speeds[] = {5.0, 10.0};
     jj_adTimerSpeedMultiplier = speeds[idx];
     jj_adSpeedActive = YES;
-    jj_dbg([NSString stringWithFormat:@"[广告] 加速 %.0fx", speeds[idx]]);
     
     // 更新按钮高亮状态
     UIView *toolbar = [self.view viewWithTag:jj_adToolbarTag];
@@ -2677,31 +2240,17 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
 %hook NSTimer
 
 + (NSTimer *)scheduledTimerWithTimeInterval:(NSTimeInterval)ti target:(id)t selector:(SEL)s userInfo:(id)ui repeats:(BOOL)r {
-    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && ti > 0) {
+    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && ti > 0 && ti <= 2.0) {
         ti = ti / jj_adTimerSpeedMultiplier;
     }
     return %orig(ti, t, s, ui, r);
 }
 
 + (NSTimer *)timerWithTimeInterval:(NSTimeInterval)ti target:(id)t selector:(SEL)s userInfo:(id)ui repeats:(BOOL)r {
-    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && ti > 0) {
+    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && ti > 0 && ti <= 2.0) {
         ti = ti / jj_adTimerSpeedMultiplier;
     }
     return %orig(ti, t, s, ui, r);
-}
-
-%end
-
-// Hook CADisplayLink 实现广告加速（部分广告用CADisplayLink做倒计时）
-%hook CADisplayLink
-
-+ (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
-    CADisplayLink *link = %orig;
-    if (jj_adSpeedActive && jj_adTimerSpeedMultiplier > 1.0 && link) {
-        // preferredFramesPerSecond设为更高值加速回调频率
-        link.preferredFramesPerSecond = (NSInteger)(60 * jj_adTimerSpeedMultiplier);
-    }
-    return link;
 }
 
 %end

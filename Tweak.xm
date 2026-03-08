@@ -1664,18 +1664,22 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             jj_dbg([NSString stringWithFormat:@"[表情策略2b] hasClassMethod=%d", hasClassMethod]);
             if (hasClassMethod) {
                 id result = [emoticonMgrClass GetEmoticonByMD5:md5];
+                jj_dbg([NSString stringWithFormat:@"[表情策略2b] result=%@ class=%@",
+                    result ? @"有" : @"nil", result ? NSStringFromClass([result class]) : @"-"]);
                 if (result) {
                     if ([result respondsToSelector:@selector(m_imageData)]) {
                         NSData *imgData = [result performSelector:@selector(m_imageData)];
-                        if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0) return imgData;
+                        jj_dbg([NSString stringWithFormat:@"[表情策略2b] m_imageData=%lu isGIF=%d",
+                            (unsigned long)imgData.length, imgData ? jj_isGIFData(imgData) : NO]);
+                        if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0 && jj_isGIFData(imgData)) {
+                            return imgData;
+                        }
                     }
-                    if ([result isKindOfClass:[UIImage class]]) {
-                        NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
-                        if (pngData && pngData.length > 0) return pngData;
-                    }
+                    // 不要返回UIImage转PNG（静态图），留给后面策略找GIF
+                    jj_dbg(@"[表情策略2b] 跳过非GIF数据");
                 }
             }
-        } @catch (NSException *e) {}
+        } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[表情策略2b] 异常=%@", e.reason]); }
     }
     
     // === 策略3：从正在显示的UIImageView中直接抓取 ===
@@ -1733,11 +1737,13 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
                 }
             } @catch (NSException *e) {}
             
-            // 静态图片
+            // 静态图片（暂不返回，让策略4/5有机会找GIF）
             if (imageView.image) {
                 NSData *pngData = UIImagePNGRepresentation(imageView.image);
-                jj_dbg([NSString stringWithFormat:@"[表情策略3] 回退静态图 %lu bytes", (unsigned long)pngData.length]);
-                if (pngData && pngData.length > 0) return pngData;
+                jj_dbg([NSString stringWithFormat:@"[表情策略3] 暂存静态图 %lu bytes（等GIF策略）", (unsigned long)pngData.length]);
+                if (pngData && pngData.length > 0) {
+                    objc_setAssociatedObject(cellView, "jj_fallbackData", pngData, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                }
             }
         }
     } @catch (NSException *e) {}
@@ -1749,17 +1755,21 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
         jj_dbg([NSString stringWithFormat:@"[表情策略4] imgPath=%@ thumbPath=%@", imgPath ?: @"空", thumbPath ?: @"空"]);
         if (imgPath && imgPath.length > 0) {
             NSData *fileData = [NSData dataWithContentsOfFile:imgPath];
-            if (fileData && fileData.length > 0) {
-                jj_dbg([NSString stringWithFormat:@"[表情策略4] ✅ imgPath %lu bytes isGIF=%d", (unsigned long)fileData.length, jj_isGIFData(fileData)]);
+            BOOL isGIF = fileData ? jj_isGIFData(fileData) : NO;
+            jj_dbg([NSString stringWithFormat:@"[表情策略4] imgPath %lu bytes isGIF=%d", (unsigned long)(fileData.length), isGIF]);
+            if (fileData && fileData.length > 0 && isGIF) {
+                jj_dbg(@"[表情策略4] ✅ 返回GIF");
                 return fileData;
             }
         }
-    } @catch (NSException *e) {}
-    @try {
-        NSString *thumbPath = msgWrap.m_nsThumbImgPath;
         if (thumbPath && thumbPath.length > 0) {
             NSData *fileData = [NSData dataWithContentsOfFile:thumbPath];
-            if (fileData && fileData.length > 0) return fileData;
+            BOOL isGIF = fileData ? jj_isGIFData(fileData) : NO;
+            jj_dbg([NSString stringWithFormat:@"[表情策略4] thumbPath %lu bytes isGIF=%d", (unsigned long)(fileData.length), isGIF]);
+            if (fileData && fileData.length > 0 && isGIF) {
+                jj_dbg(@"[表情策略4] ✅ 返回GIF");
+                return fileData;
+            }
         }
     } @catch (NSException *e) {}
     
@@ -1767,8 +1777,11 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     if (md5 && md5.length > 0) {
         NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
         NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-        jj_dbg([NSString stringWithFormat:@"[表情策略5] docPath=%@ cachePath=%@", docPath, cachePath]);
-        NSArray *searchPaths = @[
+        NSString *homePath = NSHomeDirectory();
+        jj_dbg([NSString stringWithFormat:@"[表情策略5] home=%@", homePath]);
+        
+        // 固定路径列表
+        NSMutableArray *searchPaths = [NSMutableArray arrayWithArray:@[
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@", md5]],
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@.gif", md5]],
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@", md5]],
@@ -1777,20 +1790,54 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"Emoticon/%@.gif", md5]],
             [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"emoticonTmp/%@", md5]],
             [cachePath stringByAppendingPathComponent:[NSString stringWithFormat:@"emoticonTmp/%@.gif", md5]],
-        ];
+        ]];
+        
+        // 递归搜索sandbox中包含md5的文件
+        @try {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSArray *topDirs = @[docPath, cachePath, [homePath stringByAppendingPathComponent:@"tmp"]];
+            for (NSString *topDir in topDirs) {
+                NSDirectoryEnumerator *enumer = [fm enumeratorAtPath:topDir];
+                NSString *file;
+                int count = 0;
+                while ((file = [enumer nextObject]) && count < 5000) {
+                    count++;
+                    if ([file containsString:md5]) {
+                        NSString *fullPath = [topDir stringByAppendingPathComponent:file];
+                        BOOL isDir = NO;
+                        [fm fileExistsAtPath:fullPath isDirectory:&isDir];
+                        if (!isDir) {
+                            [searchPaths addObject:fullPath];
+                            jj_dbg([NSString stringWithFormat:@"[表情策略5] 发现文件: %@", file]);
+                        }
+                    }
+                }
+            }
+        } @catch (NSException *e) {}
+        
         for (NSString *path in searchPaths) {
             @try {
                 BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
                 if (exists) {
                     NSData *fileData = [NSData dataWithContentsOfFile:path];
-                    jj_dbg([NSString stringWithFormat:@"[表情策略5] ✅ 找到文件 %@ %lu bytes", [path lastPathComponent], (unsigned long)fileData.length]);
-                    if (fileData && fileData.length > 0) return fileData;
+                    BOOL isGIF = fileData ? jj_isGIFData(fileData) : NO;
+                    jj_dbg([NSString stringWithFormat:@"[表情策略5] 找到 %@ %lu bytes isGIF=%d", [path lastPathComponent], (unsigned long)fileData.length, isGIF]);
+                    if (fileData && fileData.length > 0 && isGIF) {
+                        jj_dbg(@"[表情策略5] ✅ 返回GIF数据");
+                        return fileData;
+                    }
                 }
             } @catch (NSException *e) {}
         }
-        jj_dbg(@"[表情策略5] 所有路径都未找到文件");
+        jj_dbg(@"[表情策略5] 未找到GIF文件");
     }
     
+    // 所有GIF策略失败，回退到暂存的静态图
+    NSData *fallbackData = objc_getAssociatedObject(cellView, "jj_fallbackData");
+    if (fallbackData && fallbackData.length > 0) {
+        jj_dbg([NSString stringWithFormat:@"[表情] 回退静态图 %lu bytes", (unsigned long)fallbackData.length]);
+        return fallbackData;
+    }
     jj_dbg(@"[表情] 所有策略均未获取到数据");
     return nil;
 }

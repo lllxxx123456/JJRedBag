@@ -2531,16 +2531,16 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
         @try {
             Class wkClass = objc_getClass("WKWebView");
             if (wkClass) {
-                // 递归查找WKWebView
-                __block id foundWebView = nil;
-                void (^__block findWK)(UIView *) = ^(UIView *v) {
-                    if (foundWebView) return;
-                    if ([v isKindOfClass:wkClass]) { foundWebView = v; return; }
-                    for (UIView *sub in v.subviews) findWK(sub);
-                };
-                findWK(self.view);
+                // 用栈遍历查找WKWebView（避免block循环引用）
+                id foundWebView = nil;
+                NSMutableArray *stack = [NSMutableArray arrayWithObject:self.view];
+                while (stack.count > 0) {
+                    UIView *v = [stack lastObject];
+                    [stack removeLastObject];
+                    if ([v isKindOfClass:wkClass]) { foundWebView = v; break; }
+                    [stack addObjectsFromArray:v.subviews];
+                }
                 if (foundWebView && [foundWebView respondsToSelector:@selector(evaluateJavaScript:completionHandler:)]) {
-                    // 尝试触发激励广告完成回调
                     NSString *js = @"try{"
                         "var e=new Event('rewardedVideoAdClose');"
                         "e.isEnded=true;"
@@ -2552,12 +2552,14 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
                         "  wx.publishPageEvent('onRewardedVideoAdClose',{isEnded:true});"
                         "}"
                         "}catch(ex){}";
-                    [foundWebView evaluateJavaScript:js completionHandler:^(id r, NSError *e) {
-                        jj_dbg([NSString stringWithFormat:@"[广告] 策略3: JS注入 result=%@ err=%@", r, e.localizedDescription]);
-                    }];
+                    // 用objc_msgSend调用避免编译器类型检查
+                    SEL evalSel = @selector(evaluateJavaScript:completionHandler:);
+                    ((void (*)(id, SEL, NSString *, id))objc_msgSend)(foundWebView, evalSel, js, ^(id r, NSError *err) {
+                        jj_dbg([NSString stringWithFormat:@"[广告] 策略3: JS回调 result=%@ err=%@", r, err.localizedDescription]);
+                    });
                     jj_dbg(@"[广告] 策略3: 已注入JS");
                 } else {
-                    jj_dbg(@"[广告] 策略3: 未找到WKWebView");
+                    jj_dbg([NSString stringWithFormat:@"[广告] 策略3: WKWebView=%@", foundWebView ? @"有但无方法" : @"未找到"]);
                 }
             }
         } @catch (NSException *e) {}

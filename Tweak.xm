@@ -2394,60 +2394,6 @@ static void jj_removeAdToolbar(UIViewController *vc) {
     jj_adTimerSpeedMultiplier = 1.0;
 }
 
-// 递归查找包含指定文本的MMUILabel
-static UILabel *jj_findLabelWithText(UIView *view, NSString *text) {
-    if (!view) return nil;
-    if ([view isKindOfClass:[UILabel class]]) {
-        UILabel *label = (UILabel *)view;
-        if (label.text && [label.text isEqualToString:text]) return label;
-    }
-    for (UIView *subview in view.subviews) {
-        // 跳过工具栏本身
-        if (subview.tag == jj_adToolbarTag) continue;
-        UILabel *found = jj_findLabelWithText(subview, text);
-        if (found) return found;
-    }
-    return nil;
-}
-
-// 模拟点击"关闭"按钮：从label向上遍历找到可点击的父视图并触发
-static void jj_triggerCloseAction(UILabel *closeLabel) {
-    if (!closeLabel) return;
-    UIView *target = closeLabel.superview;
-    while (target) {
-        // 检查UIControl
-        if ([target isKindOfClass:[UIControl class]]) {
-            [(UIControl *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
-            return;
-        }
-        // 检查手势识别器
-        for (UIGestureRecognizer *gr in target.gestureRecognizers) {
-            if ([gr isKindOfClass:[UITapGestureRecognizer class]] && gr.enabled) {
-                @try {
-                    NSArray *grTargets = [gr valueForKey:@"_targets"];
-                    if ([grTargets isKindOfClass:[NSArray class]] && grTargets.count > 0) {
-                        id targetActionPair = [grTargets firstObject];
-                        id actionTarget = [targetActionPair valueForKey:@"_target"];
-                        if (actionTarget) {
-                            // 使用ObjC Runtime安全读取_action (SEL类型，KVC无法正确包装)
-                            Ivar actionIvar = class_getInstanceVariable(object_getClass(targetActionPair), "_action");
-                            if (actionIvar) {
-                                ptrdiff_t offset = ivar_getOffset(actionIvar);
-                                SEL action = *(SEL *)((uint8_t *)(__bridge void *)targetActionPair + offset);
-                                if (action) {
-                                    ((void (*)(id, SEL, id))objc_msgSend)(actionTarget, action, gr);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                } @catch (NSException *e) {}
-            }
-        }
-        target = target.superview;
-    }
-}
-
 static void jj_addAdToolbar(WAWebViewController *vc) {
     if (jj_adToolbarWindow) return;
     

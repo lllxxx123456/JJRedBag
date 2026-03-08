@@ -40,6 +40,9 @@ static void jj_dbg(NSString *msg) {
 }
 // ===== 临时调试悬浮窗结束 =====
 
+// 缓存WCPayLogicMgr实例（避免MMServiceCenter defaultCenter不可用时无法获取）
+static __weak id jj_cachedPayLogicMgr = nil;
+
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
 + (instancetype)sharedInstance;
@@ -417,18 +420,9 @@ static void jj_dbg(NSString *msg) {
     } @catch (NSException *e) { jj_dbg(@"× 收款状态异常"); return; }
     
     // 检查是否是发给自己的转账
-    NSString *selfUserName = nil;
-    @try {
-        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-        jj_dbg([NSString stringWithFormat:@"contactMgr: %@", contactMgr ? @"OK" : @"nil"]);
-        CContact *selfContact = [contactMgr getSelfContact];
-        jj_dbg([NSString stringWithFormat:@"selfContact: %@", selfContact ? @"OK" : @"nil"]);
-        selfUserName = [selfContact m_nsUsrName];
-        jj_dbg([NSString stringWithFormat:@"自己: %@", selfUserName]);
-    } @catch (NSException *e) {
-        jj_dbg([NSString stringWithFormat:@"× 获取自己信息崩溃: %@", e.reason]);
-        return;
-    }
+    // 使用msgWrap.m_nsToUsr作为自己的用户名（OnAddMessageByReceiver接收的消息，m_nsToUsr就是当前用户）
+    NSString *selfUserName = msgWrap.m_nsToUsr;
+    jj_dbg([NSString stringWithFormat:@"自己(m_nsToUsr): %@", selfUserName]);
     
     NSString *receiverUsername = nil;
     @try {
@@ -541,9 +535,16 @@ static void jj_dbg(NSString *msg) {
     // 执行自动收款
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
-            WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
-                                          getService:objc_getClass("WCPayLogicMgr")];
-            jj_dbg([NSString stringWithFormat:@"payLogicMgr: %@", payLogicMgr ? @"OK" : @"nil"]);
+            // 优先使用缓存的WCPayLogicMgr，MMServiceCenter作为fallback
+            WCPayLogicMgr *payLogicMgr = (WCPayLogicMgr *)jj_cachedPayLogicMgr;
+            if (!payLogicMgr) {
+                @try {
+                    payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
+                                   getService:objc_getClass("WCPayLogicMgr")];
+                } @catch (NSException *e) {}
+            }
+            jj_dbg([NSString stringWithFormat:@"payLogicMgr: %@ (缓存:%@)", 
+                    payLogicMgr ? @"OK" : @"nil", jj_cachedPayLogicMgr ? @"有" : @"无"]);
             if (payLogicMgr) {
                 // 构造WCPayConfirmTransferRequest实现纯后台静默收款
                 @try {
@@ -757,6 +758,7 @@ static void jj_dbg(NSString *msg) {
 %hook WCPayLogicMgr
 
 - (void)ConfirmTransferMoney:(id)arg1 {
+    jj_cachedPayLogicMgr = self;
     jj_dbg([NSString stringWithFormat:@"[WCPay] ConfirmTransferMoney: 参数类型=%@ 地址=%p", NSStringFromClass([arg1 class]), arg1]);
     // dump所有属性
     @try {
@@ -774,11 +776,13 @@ static void jj_dbg(NSString *msg) {
 }
 
 - (void)handleWCPayFacingReceiveMoneyMsg:(id)arg1 msgType:(int)arg2 {
+    jj_cachedPayLogicMgr = self;
     jj_dbg([NSString stringWithFormat:@"[WCPay] handleWCPayFacingReceiveMoneyMsg: type=%d 参数类型=%@", arg2, NSStringFromClass([arg1 class])]);
     %orig;
 }
 
 - (void)CheckTransferMoneyStatus:(id)arg1 {
+    jj_cachedPayLogicMgr = self;
     jj_dbg([NSString stringWithFormat:@"[WCPay] CheckTransferMoneyStatus: 参数类型=%@", NSStringFromClass([arg1 class])]);
     %orig;
 }

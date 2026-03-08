@@ -530,31 +530,36 @@ static void jj_dbg(NSString *msg) {
         
         JJRedBagManager *mgr = [JJRedBagManager sharedManager];
         
-        // 自动回复（直接用self即CMessageMgr发送）
-        BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
-        if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
-            jj_dbg([NSString stringWithFormat:@"[回复] 群聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
-            @try { [self SendTextMessage:mgr.receiveAutoReplyContent toUsr:fromUserCopy]; jj_dbg(@"[回复] ✅ 群聊回复已发送"); }
-            @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
-        } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
-            jj_dbg([NSString stringWithFormat:@"[回复] 私聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
-            @try { [self SendTextMessage:mgr.receiveAutoReplyContent toUsr:fromUserCopy]; jj_dbg(@"[回复] ✅ 私聊回复已发送"); }
-            @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
-        } else {
-            jj_dbg([NSString stringWithFormat:@"[回复] 跳过 isGroup=%d groupReply=%d privateReply=%d content=%@",
-                isGroupChat, mgr.receiveAutoReplyGroupEnabled, mgr.receiveAutoReplyPrivateEnabled,
-                mgr.receiveAutoReplyContent.length > 0 ? mgr.receiveAutoReplyContent : @"空"]);
+        // dump CMessageMgr中与发送相关的方法（仅首次）
+        static BOOL jj_dumpedMethods = NO;
+        if (!jj_dumpedMethods) {
+            jj_dumpedMethods = YES;
+            unsigned int mcount = 0;
+            Method *mlist = class_copyMethodList([self class], &mcount);
+            NSMutableArray *sendMethods = [NSMutableArray array];
+            for (unsigned int i = 0; i < mcount; i++) {
+                NSString *mname = NSStringFromSelector(method_getName(mlist[i]));
+                NSString *lower = [mname lowercaseString];
+                if ([lower containsString:@"send"] || [lower containsString:@"addmsg"] || 
+                    ([lower containsString:@"text"] && [lower containsString:@"msg"])) {
+                    [sendMethods addObject:mname];
+                }
+            }
+            free(mlist);
+            for (NSString *m in sendMethods) {
+                jj_dbg([NSString stringWithFormat:@"[方法] %@", m]);
+            }
         }
         
-        // 发送通知（直接用self即CMessageMgr发送）
+        // 自动回复（暂时跳过，等确认正确方法名）
+        BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
+        jj_dbg([NSString stringWithFormat:@"[回复] isGroup=%d groupReply=%d privateReply=%d content=%@",
+            isGroupChat, mgr.receiveAutoReplyGroupEnabled, mgr.receiveAutoReplyPrivateEnabled,
+            mgr.receiveAutoReplyContent.length > 0 ? mgr.receiveAutoReplyContent : @"空"]);
+        
+        // 通知
         if (mgr.receiveNotificationEnabled && mgr.receiveNotificationChatId.length > 0) {
-            double amountYuan = amountValue / 100.0;
-            NSMutableString *notifyMsg = [NSMutableString string];
-            [notifyMsg appendFormat:@"收到一笔转账：\n金额：%.2f元", amountYuan];
-            if (memo.length > 0) [notifyMsg appendFormat:@"\n备注：%@", memo];
-            jj_dbg([NSString stringWithFormat:@"[通知] to=%@ msg=%@", mgr.receiveNotificationChatId, notifyMsg]);
-            @try { [self SendTextMessage:notifyMsg toUsr:mgr.receiveNotificationChatId]; jj_dbg(@"[通知] ✅ 通知已发送"); }
-            @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[通知] ❌ 异常=%@", e.reason]); }
+            jj_dbg([NSString stringWithFormat:@"[通知] to=%@", mgr.receiveNotificationChatId]);
         }
         
         // 本地弹窗通知

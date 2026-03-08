@@ -18,90 +18,10 @@ static UIView *jj_debugContainer = nil;
 static UITextView *jj_debugLogView = nil;
 static NSMutableString *jj_debugLog = nil;
 static BOOL jj_debugVisible = YES;
-
-static void jj_showDebugWindow(void);
-static void jj_dbg(NSString *msg) {
-    if (!jj_debugLog) jj_debugLog = [NSMutableString string];
-    NSDateFormatter *df = [[NSDateFormatter alloc] init];
-    df.dateFormat = @"HH:mm:ss";
-    [jj_debugLog appendFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!jj_debugContainer && jj_debugVisible) jj_showDebugWindow();
-        if (jj_debugLogView) {
-            jj_debugLogView.text = jj_debugLog;
-            [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLog.length, 0)];
-        }
-    });
-}
-
-static void jj_showDebugWindow(void) {
-    UIWindow *w = [UIApplication sharedApplication].keyWindow;
-    if (!w) return;
-    
-    CGFloat sw = w.bounds.size.width;
-    jj_debugContainer = [[UIView alloc] initWithFrame:CGRectMake(5, 70, sw - 10, 220)];
-    jj_debugContainer.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.8];
-    jj_debugContainer.layer.cornerRadius = 10;
-    jj_debugContainer.layer.zPosition = 99999;
-    jj_debugContainer.clipsToBounds = YES;
-    
-    // 标题栏
-    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, sw - 10, 32)];
-    titleBar.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.15];
-    [jj_debugContainer addSubview:titleBar];
-    
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 100, 32)];
-    title.text = @"Debug";
-    title.textColor = [UIColor greenColor];
-    title.font = [UIFont fontWithName:@"Menlo-Bold" size:13];
-    [titleBar addSubview:title];
-    
-    // 复制按钮
-    UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    copyBtn.frame = CGRectMake(sw - 140, 2, 50, 28);
-    [copyBtn setTitle:@"复制" forState:UIControlStateNormal];
-    [copyBtn setTitleColor:[UIColor cyanColor] forState:UIControlStateNormal];
-    copyBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    [copyBtn addTarget:[JJDebugHelper shared] action:@selector(jj_copyDebugLog) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:copyBtn];
-    
-    // 关闭按钮
-    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(sw - 80, 2, 60, 28);
-    [closeBtn setTitle:@"关闭" forState:UIControlStateNormal];
-    [closeBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    [closeBtn addTarget:[JJDebugHelper shared] action:@selector(jj_closeDebugWindow) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:closeBtn];
-    
-    // 清除按钮
-    UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    clearBtn.frame = CGRectMake(sw - 200, 2, 50, 28);
-    [clearBtn setTitle:@"清除" forState:UIControlStateNormal];
-    [clearBtn setTitleColor:[UIColor yellowColor] forState:UIControlStateNormal];
-    clearBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    [clearBtn addTarget:[JJDebugHelper shared] action:@selector(jj_clearLog) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:clearBtn];
-    
-    // 日志区域
-    jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(0, 32, sw - 10, 188)];
-    jj_debugLogView.backgroundColor = [UIColor clearColor];
-    jj_debugLogView.textColor = [UIColor greenColor];
-    jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:10];
-    jj_debugLogView.editable = NO;
-    if (jj_debugLog) jj_debugLogView.text = jj_debugLog;
-    [jj_debugContainer addSubview:jj_debugLogView];
-    
-    // 拖拽手势
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[JJDebugHelper shared] action:@selector(jj_panDebugWindow:)];
-    [titleBar addGestureRecognizer:pan];
-    
-    [w addSubview:jj_debugContainer];
-    jj_debugVisible = YES;
-}
-
-// 调试窗口控制器
 static UIButton *jj_debugToggleBtn = nil;
+static void jj_showDebugWindow(void);
+
+// 调试窗口控制器（必须在jj_showDebugWindow之前定义）
 @interface JJDebugHelper : NSObject
 + (instancetype)shared;
 @end
@@ -114,14 +34,13 @@ static UIButton *jj_debugToggleBtn = nil;
 }
 - (void)jj_copyDebugLog {
     [UIPasteboard generalPasteboard].string = jj_debugLog ?: @"";
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:@"日志已复制到剪贴板" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:@"\u65e5\u5fd7\u5df2\u590d\u5236\u5230\u526a\u8d34\u677f" preferredStyle:UIAlertControllerStyleAlert];
     [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
 }
 - (void)jj_closeDebugWindow {
     [jj_debugContainer removeFromSuperview];
     jj_debugContainer = nil; jj_debugLogView = nil; jj_debugVisible = NO;
-    // 显示小按钮用于重新打开
     if (!jj_debugToggleBtn) {
         jj_debugToggleBtn = [UIButton buttonWithType:UIButtonTypeSystem];
         jj_debugToggleBtn.frame = CGRectMake(5, 70, 60, 28);
@@ -149,6 +68,80 @@ static UIButton *jj_debugToggleBtn = nil;
     [pan setTranslation:CGPointZero inView:jj_debugContainer.superview];
 }
 @end
+
+static void jj_dbg(NSString *msg) {
+    if (!jj_debugLog) jj_debugLog = [NSMutableString string];
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    df.dateFormat = @"HH:mm:ss";
+    [jj_debugLog appendFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!jj_debugContainer && jj_debugVisible) jj_showDebugWindow();
+        if (jj_debugLogView) {
+            jj_debugLogView.text = jj_debugLog;
+            [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLog.length, 0)];
+        }
+    });
+}
+
+static void jj_showDebugWindow(void) {
+    UIWindow *w = [UIApplication sharedApplication].keyWindow;
+    if (!w) return;
+    
+    CGFloat sw = w.bounds.size.width;
+    jj_debugContainer = [[UIView alloc] initWithFrame:CGRectMake(5, 70, sw - 10, 220)];
+    jj_debugContainer.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.8];
+    jj_debugContainer.layer.cornerRadius = 10;
+    jj_debugContainer.layer.zPosition = 99999;
+    jj_debugContainer.clipsToBounds = YES;
+    
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, sw - 10, 32)];
+    titleBar.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.15];
+    [jj_debugContainer addSubview:titleBar];
+    
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 100, 32)];
+    title.text = @"Debug";
+    title.textColor = [UIColor greenColor];
+    title.font = [UIFont fontWithName:@"Menlo-Bold" size:13];
+    [titleBar addSubview:title];
+    
+    UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    clearBtn.frame = CGRectMake(sw - 200, 2, 50, 28);
+    [clearBtn setTitle:@"\u6e05\u9664" forState:UIControlStateNormal];
+    [clearBtn setTitleColor:[UIColor yellowColor] forState:UIControlStateNormal];
+    clearBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [clearBtn addTarget:[JJDebugHelper shared] action:@selector(jj_clearLog) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:clearBtn];
+    
+    UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    copyBtn.frame = CGRectMake(sw - 140, 2, 50, 28);
+    [copyBtn setTitle:@"\u590d\u5236" forState:UIControlStateNormal];
+    [copyBtn setTitleColor:[UIColor cyanColor] forState:UIControlStateNormal];
+    copyBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [copyBtn addTarget:[JJDebugHelper shared] action:@selector(jj_copyDebugLog) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:copyBtn];
+    
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(sw - 80, 2, 60, 28);
+    [closeBtn setTitle:@"\u5173\u95ed" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [closeBtn addTarget:[JJDebugHelper shared] action:@selector(jj_closeDebugWindow) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:closeBtn];
+    
+    jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(0, 32, sw - 10, 188)];
+    jj_debugLogView.backgroundColor = [UIColor clearColor];
+    jj_debugLogView.textColor = [UIColor greenColor];
+    jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:10];
+    jj_debugLogView.editable = NO;
+    if (jj_debugLog) jj_debugLogView.text = jj_debugLog;
+    [jj_debugContainer addSubview:jj_debugLogView];
+    
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[JJDebugHelper shared] action:@selector(jj_panDebugWindow:)];
+    [titleBar addGestureRecognizer:pan];
+    
+    [w addSubview:jj_debugContainer];
+    jj_debugVisible = YES;
+}
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject

@@ -10,9 +10,32 @@
 // GIF的UTI标识符（避免依赖MobileCoreServices中已废弃的kUTTypeGIF）
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
-// 缓存服务实例（避免MMServiceCenter defaultCenter不可用时无法获取）
-static __weak id jj_cachedPayLogicMgr = nil;
-static __weak id jj_cachedMsgMgr = nil;
+// 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
+static id jj_cachedPayLogicMgr = nil;
+
+// 临时悬浮窗调试（确认问题后删除）
+static UITextView *jj_debugLogView = nil;
+static NSMutableString *jj_debugLog = nil;
+static void jj_dbg(NSString *msg) {
+    if (!jj_debugLog) jj_debugLog = [NSMutableString string];
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    df.dateFormat = @"HH:mm:ss";
+    [jj_debugLog appendFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!jj_debugLogView) {
+            jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(10, 80, 350, 200)];
+            jj_debugLogView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
+            jj_debugLogView.textColor = [UIColor greenColor];
+            jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:10];
+            jj_debugLogView.editable = NO;
+            jj_debugLogView.layer.cornerRadius = 8;
+            jj_debugLogView.layer.zPosition = 99999;
+            [[UIApplication sharedApplication].keyWindow addSubview:jj_debugLogView];
+        }
+        jj_debugLogView.text = jj_debugLog;
+        [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLog.length, 0)];
+    });
+}
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
@@ -42,7 +65,6 @@ static __weak id jj_cachedMsgMgr = nil;
 
 - (void)OnAddMessageByReceiver:(CMessageWrap *)msgWrap {
     %orig;
-    jj_cachedMsgMgr = self;
     
     if (![[JJRedBagManager sharedManager] enabled]) return;
     
@@ -467,64 +489,81 @@ static __weak id jj_cachedMsgMgr = nil;
     confirmParams[@"amount"] = amountStr;
     confirmParams[@"memo"] = memo;
     
-    // 执行自动收款（0.3秒延迟）
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        @try {
-            // 优先使用缓存的WCPayLogicMgr，MMServiceCenter作为fallback
-            WCPayLogicMgr *payLogicMgr = (WCPayLogicMgr *)jj_cachedPayLogicMgr;
-            if (!payLogicMgr) {
-                @try {
-                    payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
-                                   getService:objc_getClass("WCPayLogicMgr")];
-                } @catch (NSException *e) {}
+    jj_dbg([NSString stringWithFormat:@"[收款] 检测到转账 金额=%@ from=%@", amountStr, fromUserCopy]);
+    
+    // 直接执行自动收款（不延迟）
+    @try {
+        WCPayLogicMgr *payLogicMgr = (WCPayLogicMgr *)jj_cachedPayLogicMgr;
+        jj_dbg([NSString stringWithFormat:@"[收款] cachedPayLogicMgr=%@", payLogicMgr ? @"有" : @"无"]);
+        if (!payLogicMgr) {
+            @try {
+                payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
+                               getService:objc_getClass("WCPayLogicMgr")];
+                if (payLogicMgr) jj_cachedPayLogicMgr = payLogicMgr;
+                jj_dbg([NSString stringWithFormat:@"[收款] MMServiceCenter获取=%@", payLogicMgr ? @"成功" : @"失败"]);
+            } @catch (NSException *e) {
+                jj_dbg([NSString stringWithFormat:@"[收款] MMServiceCenter异常=%@", e.reason]);
             }
-            if (!payLogicMgr) return;
-            
-            // 构造WCPayConfirmTransferRequest实现纯后台静默收款
-            WCPayConfirmTransferRequest *request = [[objc_getClass("WCPayConfirmTransferRequest") alloc] init];
-            if (!request) return;
-            request.m_nsTransferID = transferIdCopy;
-            request.m_nsFromUserName = payerUsernameCopy;
-            request.m_uiInvalidTime = invalidTime;
-            request.recv_channel_type = 0;
-            request.sub_recv_channel_id = 0;
-            if (isGroupCopy) {
-                request.group_username = fromUserCopy;
-                request.groupType = 1;
-            } else {
-                request.groupType = 0;
-            }
-            
-            [payLogicMgr ConfirmTransferMoney:request];
-            
-            // 更新累计金额
-            [[JJRedBagManager sharedManager] setTotalReceiveAmount:[[JJRedBagManager sharedManager] totalReceiveAmount] + amountValue];
-            [[JJRedBagManager sharedManager] saveSettings];
-            
-            // 发送通知
-            JJRedBagManager *mgr = [JJRedBagManager sharedManager];
-            if (mgr.receiveNotificationEnabled && mgr.receiveNotificationChatId.length > 0) {
-                [self jj_sendReceiveNotification:confirmParams amount:amountValue];
-            }
-            
-            // 本地弹窗通知
-            if (mgr.receiveLocalNotificationEnabled) {
-                [self jj_sendReceiveLocalNotification:confirmParams amount:amountValue];
-            }
-            
-            // 自动回复
-            BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
-            if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self jj_sendReceiveAutoReply:confirmParams isGroup:YES];
-                });
-            } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self jj_sendReceiveAutoReply:confirmParams isGroup:NO];
-                });
-            }
-        } @catch (NSException *exception) {}
-    });
+        }
+        if (!payLogicMgr) { jj_dbg(@"[收款] ❌ 无法获取WCPayLogicMgr"); return; }
+        
+        WCPayConfirmTransferRequest *request = [[objc_getClass("WCPayConfirmTransferRequest") alloc] init];
+        if (!request) { jj_dbg(@"[收款] ❌ 创建Request失败"); return; }
+        request.m_nsTransferID = transferIdCopy;
+        request.m_nsFromUserName = payerUsernameCopy;
+        request.m_uiInvalidTime = invalidTime;
+        request.recv_channel_type = 0;
+        request.sub_recv_channel_id = 0;
+        if (isGroupCopy) {
+            request.group_username = fromUserCopy;
+            request.groupType = 1;
+        } else {
+            request.groupType = 0;
+        }
+        
+        [payLogicMgr ConfirmTransferMoney:request];
+        jj_dbg(@"[收款] ✅ ConfirmTransferMoney已调用");
+        
+        // 更新累计金额
+        [[JJRedBagManager sharedManager] setTotalReceiveAmount:[[JJRedBagManager sharedManager] totalReceiveAmount] + amountValue];
+        [[JJRedBagManager sharedManager] saveSettings];
+        
+        JJRedBagManager *mgr = [JJRedBagManager sharedManager];
+        
+        // 自动回复（直接用self即CMessageMgr发送）
+        BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
+        if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
+            jj_dbg([NSString stringWithFormat:@"[回复] 群聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
+            @try { [self SendTextMessage:mgr.receiveAutoReplyContent toUsr:fromUserCopy]; jj_dbg(@"[回复] ✅ 群聊回复已发送"); }
+            @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
+        } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
+            jj_dbg([NSString stringWithFormat:@"[回复] 私聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
+            @try { [self SendTextMessage:mgr.receiveAutoReplyContent toUsr:fromUserCopy]; jj_dbg(@"[回复] ✅ 私聊回复已发送"); }
+            @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
+        } else {
+            jj_dbg([NSString stringWithFormat:@"[回复] 跳过 isGroup=%d groupReply=%d privateReply=%d content=%@",
+                isGroupChat, mgr.receiveAutoReplyGroupEnabled, mgr.receiveAutoReplyPrivateEnabled,
+                mgr.receiveAutoReplyContent.length > 0 ? mgr.receiveAutoReplyContent : @"空"]);
+        }
+        
+        // 发送通知（直接用self即CMessageMgr发送）
+        if (mgr.receiveNotificationEnabled && mgr.receiveNotificationChatId.length > 0) {
+            double amountYuan = amountValue / 100.0;
+            NSMutableString *notifyMsg = [NSMutableString string];
+            [notifyMsg appendFormat:@"收到一笔转账：\n金额：%.2f元", amountYuan];
+            if (memo.length > 0) [notifyMsg appendFormat:@"\n备注：%@", memo];
+            jj_dbg([NSString stringWithFormat:@"[通知] to=%@ msg=%@", mgr.receiveNotificationChatId, notifyMsg]);
+            @try { [self SendTextMessage:notifyMsg toUsr:mgr.receiveNotificationChatId]; jj_dbg(@"[通知] ✅ 通知已发送"); }
+            @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[通知] ❌ 异常=%@", e.reason]); }
+        }
+        
+        // 本地弹窗通知
+        if (mgr.receiveLocalNotificationEnabled) {
+            [self jj_sendReceiveLocalNotification:confirmParams amount:amountValue];
+        }
+    } @catch (NSException *e) {
+        jj_dbg([NSString stringWithFormat:@"[收款] ❌ 整体异常=%@", e.reason]);
+    }
     } @catch (NSException *e) {}
 }
 
@@ -537,13 +576,7 @@ static __weak id jj_cachedMsgMgr = nil;
     NSString *toUser = params[@"fromUser"];
     if (!toUser) return;
     
-    CMessageMgr *msgMgr = (CMessageMgr *)jj_cachedMsgMgr;
-    if (!msgMgr) {
-        @try { msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")]; } @catch (NSException *e) {}
-    }
-    if (msgMgr) {
-        [msgMgr SendTextMessage:content toUsr:toUser];
-    }
+    @try { [self SendTextMessage:content toUsr:toUser]; } @catch (NSException *e) {}
 }
 
 %new
@@ -561,13 +594,7 @@ static __weak id jj_cachedMsgMgr = nil;
         [msg appendFormat:@"备注：%@", memo];
     }
     
-    CMessageMgr *msgMgr = (CMessageMgr *)jj_cachedMsgMgr;
-    if (!msgMgr) {
-        @try { msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")]; } @catch (NSException *e) {}
-    }
-    if (msgMgr) {
-        [msgMgr SendTextMessage:msg toUsr:manager.receiveNotificationChatId];
-    }
+    @try { [self SendTextMessage:msg toUsr:manager.receiveNotificationChatId]; } @catch (NSException *e) {}
 }
 
 %new
@@ -681,6 +708,13 @@ static __weak id jj_cachedMsgMgr = nil;
 #pragma mark - WCPayLogicMgr缓存Hook
 
 %hook WCPayLogicMgr
+
+- (instancetype)init {
+    id result = %orig;
+    jj_cachedPayLogicMgr = result;
+    jj_dbg(@"[缓存] WCPayLogicMgr init已缓存");
+    return result;
+}
 
 - (void)ConfirmTransferMoney:(id)arg1 {
     jj_cachedPayLogicMgr = self;

@@ -239,7 +239,16 @@ static void jj_showDebugWindow(void) {
         payInfo = (WCPayInfoItem *)rawPayInfo;
     }
     
-    // Transfer check first (before hongbao to avoid misrouting)
+    // 红包优先检测（红包URL含wxpay://...hongbao，转账含transferconfirm/c2c_transfer）
+    BOOL hasHongbaoUrl = ([content rangeOfString:@"wxpay://c2cbizmessagehandler/hongbao"].location != NSNotFound);
+    
+    if (hasHongbaoUrl) {
+        jj_dbg([NSString stringWithFormat:@"[分发] 红包消息 from=%@", msgWrap.m_nsFromUsr]);
+        [self jj_processRedBagMessage:msgWrap];
+        return;
+    }
+    
+    // Transfer check
     BOOL isTransferMsg = NO;
     if (payInfo) {
         @try {
@@ -253,12 +262,14 @@ static void jj_showDebugWindow(void) {
     }
     
     if (isTransferMsg) {
+        jj_dbg([NSString stringWithFormat:@"[分发] 转账消息 from=%@", msgWrap.m_nsFromUsr]);
         [self jj_processTransferMessage:msgWrap];
         return;
     }
     
-    // Hongbao check
+    // 兜底：其他wxpay://消息也当红包处理
     if ([content rangeOfString:@"wxpay://"].location != NSNotFound) {
+        jj_dbg([NSString stringWithFormat:@"[分发] wxpay消息(兜底) from=%@", msgWrap.m_nsFromUsr]);
         [self jj_processRedBagMessage:msgWrap];
         return;
     }
@@ -1588,35 +1599,44 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     // === 策略1：从msgWrap.m_dtEmoticonData直接获取 ===
     @try {
         NSData *data = msgWrap.m_dtEmoticonData;
-        if (data && [data isKindOfClass:[NSData class]] && data.length > 0) return data;
-    } @catch (NSException *e) {}
+        if (data && [data isKindOfClass:[NSData class]] && data.length > 0) {
+            jj_dbg([NSString stringWithFormat:@"[表情策略1] ✅ m_dtEmoticonData=%lu bytes isGIF=%d", (unsigned long)data.length, jj_isGIFData(data)]);
+            return data;
+        }
+        jj_dbg(@"[表情策略1] m_dtEmoticonData=空");
+    } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[表情策略1] 异常=%@", e.reason]); }
     
-    // === 策略2：通过CEmoticonMgr内部API获取（微信自己的缓存机制，最可靠） ===
+    // === 策略2：通过CEmoticonMgr内部API获取 ===
     NSString *md5 = msgWrap.m_nsEmoticonMD5;
+    jj_dbg([NSString stringWithFormat:@"[表情策略2] md5=%@", md5 ?: @"空"]);
     if (md5 && md5.length > 0) {
-        // 2a: 通过实例方法getEmoticonWrapByMd5获取CEmoticonWrap，再取m_imageData
+        // 2a: getEmoticonWrapByMd5
         @try {
             CEmoticonMgr *emoticonMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CEmoticonMgr")];
-            if (emoticonMgr && [emoticonMgr respondsToSelector:@selector(getEmoticonWrapByMd5:)]) {
+            BOOL hasMethod = [emoticonMgr respondsToSelector:@selector(getEmoticonWrapByMd5:)];
+            jj_dbg([NSString stringWithFormat:@"[表情策略2a] emoticonMgr=%@ hasMethod=%d", emoticonMgr ? @"有" : @"无", hasMethod]);
+            if (emoticonMgr && hasMethod) {
                 CEmoticonWrap *wrap = [emoticonMgr getEmoticonWrapByMd5:md5];
+                jj_dbg([NSString stringWithFormat:@"[表情策略2a] wrap=%@ imageData=%lu", wrap ? NSStringFromClass([wrap class]) : @"nil", (unsigned long)(wrap.m_imageData.length)]);
                 if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) {
+                    jj_dbg([NSString stringWithFormat:@"[表情策略2a] ✅ isGIF=%d", jj_isGIFData(wrap.m_imageData)]);
                     return wrap.m_imageData;
                 }
             }
-        } @catch (NSException *e) {}
+        } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[表情策略2a] 异常=%@", e.reason]); }
         
-        // 2b: 通过类方法GetEmoticonByMD5获取
+        // 2b: GetEmoticonByMD5
         @try {
             Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
-            if ([emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)]) {
+            BOOL hasClassMethod = [emoticonMgrClass respondsToSelector:@selector(GetEmoticonByMD5:)];
+            jj_dbg([NSString stringWithFormat:@"[表情策略2b] hasClassMethod=%d", hasClassMethod]);
+            if (hasClassMethod) {
                 id result = [emoticonMgrClass GetEmoticonByMD5:md5];
                 if (result) {
-                    // 返回的可能是CEmoticonWrap对象
                     if ([result respondsToSelector:@selector(m_imageData)]) {
                         NSData *imgData = [result performSelector:@selector(m_imageData)];
                         if (imgData && [imgData isKindOfClass:[NSData class]] && imgData.length > 0) return imgData;
                     }
-                    // 也可能直接返回UIImage
                     if ([result isKindOfClass:[UIImage class]]) {
                         NSData *pngData = UIImagePNGRepresentation((UIImage *)result);
                         if (pngData && pngData.length > 0) return pngData;
@@ -1634,15 +1654,23 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
         }
         UIView *searchRoot = emoticonView ?: cellView;
         UIImageView *imageView = jj_findImageViewInView(searchRoot);
+        jj_dbg([NSString stringWithFormat:@"[表情策略3] imageView=%@ class=%@", imageView ? @"有" : @"无",
+            imageView ? NSStringFromClass([imageView class]) : @"-"]);
         
         if (imageView) {
-            // 尝试获取GIF动画数据
+            BOOL hasAnimatedImage = [imageView respondsToSelector:@selector(animatedImage)];
+            BOOL hasAnimatedData = [imageView respondsToSelector:@selector(animatedImageData)];
+            jj_dbg([NSString stringWithFormat:@"[表情策略3] animatedImage=%d animatedImageData=%d", hasAnimatedImage, hasAnimatedData]);
+            
             @try {
-                if ([imageView respondsToSelector:@selector(animatedImage)]) {
+                if (hasAnimatedImage) {
                     id animatedImage = [imageView performSelector:@selector(animatedImage)];
+                    jj_dbg([NSString stringWithFormat:@"[表情策略3] animatedImage obj=%@ class=%@",
+                        animatedImage ? @"有" : @"nil", animatedImage ? NSStringFromClass([animatedImage class]) : @"-"]);
                     if (animatedImage && [animatedImage respondsToSelector:@selector(animatedImageData)]) {
                         NSData *gifData = [animatedImage performSelector:@selector(animatedImageData)];
                         if (gifData && [gifData isKindOfClass:[NSData class]] && gifData.length > 0 && jj_isGIFData(gifData)) {
+                            jj_dbg([NSString stringWithFormat:@"[表情策略3] ✅ GIF from animatedImage %lu bytes", (unsigned long)gifData.length]);
                             return gifData;
                         }
                     }
@@ -1650,9 +1678,10 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             } @catch (NSException *e) {}
             
             @try {
-                if ([imageView respondsToSelector:@selector(animatedImageData)]) {
+                if (hasAnimatedData) {
                     NSData *gifData = [imageView performSelector:@selector(animatedImageData)];
                     if (gifData && [gifData isKindOfClass:[NSData class]] && gifData.length > 0 && jj_isGIFData(gifData)) {
+                        jj_dbg([NSString stringWithFormat:@"[表情策略3] ✅ GIF from imageView %lu bytes", (unsigned long)gifData.length]);
                         return gifData;
                     }
                 }
@@ -1660,7 +1689,11 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             
             @try {
                 UIImage *img = imageView.image;
-                if (img && [img respondsToSelector:@selector(animatedImageData)]) {
+                BOOL imgHasAnimData = [img respondsToSelector:@selector(animatedImageData)];
+                NSUInteger imgCount = img.images ? img.images.count : 0;
+                jj_dbg([NSString stringWithFormat:@"[表情策略3] image=%@ animData=%d frames=%lu",
+                    img ? @"有" : @"nil", imgHasAnimData, (unsigned long)imgCount]);
+                if (img && imgHasAnimData) {
                     NSData *gifData = [img performSelector:@selector(animatedImageData)];
                     if (gifData && [gifData isKindOfClass:[NSData class]] && gifData.length > 0 && jj_isGIFData(gifData)) {
                         return gifData;
@@ -1671,6 +1704,7 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
             // 静态图片
             if (imageView.image) {
                 NSData *pngData = UIImagePNGRepresentation(imageView.image);
+                jj_dbg([NSString stringWithFormat:@"[表情策略3] 回退静态图 %lu bytes", (unsigned long)pngData.length]);
                 if (pngData && pngData.length > 0) return pngData;
             }
         }
@@ -1679,9 +1713,14 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     // === 策略4：通过文件路径读取 ===
     @try {
         NSString *imgPath = msgWrap.m_nsImgPath;
+        NSString *thumbPath = msgWrap.m_nsThumbImgPath;
+        jj_dbg([NSString stringWithFormat:@"[表情策略4] imgPath=%@ thumbPath=%@", imgPath ?: @"空", thumbPath ?: @"空"]);
         if (imgPath && imgPath.length > 0) {
             NSData *fileData = [NSData dataWithContentsOfFile:imgPath];
-            if (fileData && fileData.length > 0) return fileData;
+            if (fileData && fileData.length > 0) {
+                jj_dbg([NSString stringWithFormat:@"[表情策略4] ✅ imgPath %lu bytes isGIF=%d", (unsigned long)fileData.length, jj_isGIFData(fileData)]);
+                return fileData;
+            }
         }
     } @catch (NSException *e) {}
     @try {
@@ -1696,6 +1735,7 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     if (md5 && md5.length > 0) {
         NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
         NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+        jj_dbg([NSString stringWithFormat:@"[表情策略5] docPath=%@ cachePath=%@", docPath, cachePath]);
         NSArray *searchPaths = @[
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@", md5]],
             [docPath stringByAppendingPathComponent:[NSString stringWithFormat:@"../tmp/emoticonTmp/%@.gif", md5]],
@@ -1708,12 +1748,18 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
         ];
         for (NSString *path in searchPaths) {
             @try {
-                NSData *fileData = [NSData dataWithContentsOfFile:path];
-                if (fileData && fileData.length > 0) return fileData;
+                BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+                if (exists) {
+                    NSData *fileData = [NSData dataWithContentsOfFile:path];
+                    jj_dbg([NSString stringWithFormat:@"[表情策略5] ✅ 找到文件 %@ %lu bytes", [path lastPathComponent], (unsigned long)fileData.length]);
+                    if (fileData && fileData.length > 0) return fileData;
+                }
             } @catch (NSException *e) {}
         }
+        jj_dbg(@"[表情策略5] 所有路径都未找到文件");
     }
     
+    jj_dbg(@"[表情] 所有策略均未获取到数据");
     return nil;
 }
 
@@ -2418,53 +2464,124 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     if (idx == 2) {
         // 跳过广告按钮
         jj_dbg(@"[广告] 点击跳过广告");
-        BOOL hasReward = [self respondsToSelector:@selector(onGameRewards)];
-        jj_dbg([NSString stringWithFormat:@"[广告] onGameRewards=%@", hasReward ? @"存在" : @"不存在"]);
         
-        // dump WAWebViewController相关方法（仅首次）
-        static BOOL jj_dumpedAdMethods = NO;
-        if (!jj_dumpedAdMethods) {
-            jj_dumpedAdMethods = YES;
-            unsigned int mc = 0;
-            Method *ml = class_copyMethodList([self class], &mc);
-            NSMutableArray *adMethods = [NSMutableArray array];
-            for (unsigned int i = 0; i < mc; i++) {
-                NSString *mn = NSStringFromSelector(method_getName(ml[i]));
-                NSString *lower = [mn lowercaseString];
-                if ([lower containsString:@"game"] || [lower containsString:@"reward"] || 
-                    [lower containsString:@"ad"] || [lower containsString:@"close"] ||
-                    [lower containsString:@"skip"] || [lower containsString:@"finish"]) {
-                    [adMethods addObject:mn];
+        // 策略1：调用onGameRewards触发奖励
+        @try {
+            if ([self respondsToSelector:@selector(onGameRewards)]) {
+                [self onGameRewards];
+                jj_dbg(@"[广告] 策略1: onGameRewards已调用");
+            }
+        } @catch (NSException *e) {}
+        
+        // 策略2：查找广告倒计时Label的父容器并隐藏
+        @try {
+            UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
+            if (adLabel) {
+                // 向上遍历找到广告容器（通常是一个全屏的overlay view）
+                UIView *adContainer = adLabel.superview;
+                int depth = 0;
+                while (adContainer && depth < 10) {
+                    // 找到接近全屏大小的容器
+                    CGSize containerSize = adContainer.bounds.size;
+                    CGSize screenSize = [UIScreen mainScreen].bounds.size;
+                    if (containerSize.width > screenSize.width * 0.8 && containerSize.height > screenSize.height * 0.5) {
+                        jj_dbg([NSString stringWithFormat:@"[广告] 策略2: 找到广告容器 class=%@ size=%.0fx%.0f depth=%d",
+                            NSStringFromClass([adContainer class]), containerSize.width, containerSize.height, depth]);
+                        // dump容器的类名和子视图结构
+                        static BOOL jj_dumpedAdView = NO;
+                        if (!jj_dumpedAdView) {
+                            jj_dumpedAdView = YES;
+                            jj_dbg([NSString stringWithFormat:@"[广告容器] class=%@ tag=%ld subviews=%lu",
+                                NSStringFromClass([adContainer class]), (long)adContainer.tag, (unsigned long)adContainer.subviews.count]);
+                            // dump容器的VC
+                            UIResponder *r = adContainer;
+                            while (r) {
+                                if ([r isKindOfClass:[UIViewController class]]) {
+                                    jj_dbg([NSString stringWithFormat:@"[广告VC] %@", NSStringFromClass([r class])]);
+                                    // dump该VC的方法
+                                    unsigned int mc = 0;
+                                    Method *ml = class_copyMethodList([r class], &mc);
+                                    for (unsigned int i = 0; i < mc; i++) {
+                                        NSString *mn = NSStringFromSelector(method_getName(ml[i]));
+                                        NSString *lower = [mn lowercaseString];
+                                        if ([lower containsString:@"close"] || [lower containsString:@"dismiss"] ||
+                                            [lower containsString:@"reward"] || [lower containsString:@"finish"] ||
+                                            [lower containsString:@"skip"] || [lower containsString:@"complete"] ||
+                                            [lower containsString:@"end"]) {
+                                            jj_dbg([NSString stringWithFormat:@"[广告VC方法] %@", mn]);
+                                        }
+                                    }
+                                    free(ml);
+                                    break;
+                                }
+                                r = [r nextResponder];
+                            }
+                        }
+                        adContainer.hidden = YES;
+                        jj_dbg(@"[广告] 策略2: 已隐藏广告容器");
+                        break;
+                    }
+                    adContainer = adContainer.superview;
+                    depth++;
                 }
             }
-            free(ml);
-            for (NSString *m in adMethods) {
-                jj_dbg([NSString stringWithFormat:@"[广告方法] %@", m]);
-            }
-        }
+        } @catch (NSException *e) {}
         
+        // 策略3：查找WKWebView注入JS触发广告完成回调
         @try {
-            if (hasReward) {
-                [self onGameRewards];
-                jj_dbg(@"[广告] ✅ onGameRewards已调用");
+            Class wkClass = objc_getClass("WKWebView");
+            if (wkClass) {
+                // 递归查找WKWebView
+                __block id foundWebView = nil;
+                void (^__block findWK)(UIView *) = ^(UIView *v) {
+                    if (foundWebView) return;
+                    if ([v isKindOfClass:wkClass]) { foundWebView = v; return; }
+                    for (UIView *sub in v.subviews) findWK(sub);
+                };
+                findWK(self.view);
+                if (foundWebView && [foundWebView respondsToSelector:@selector(evaluateJavaScript:completionHandler:)]) {
+                    // 尝试触发激励广告完成回调
+                    NSString *js = @"try{"
+                        "var e=new Event('rewardedVideoAdClose');"
+                        "e.isEnded=true;"
+                        "window.dispatchEvent(e);"
+                        "if(window.__wxjs_environment){" 
+                        "  WeixinJSBridge.publish('onRewardedVideoAdClose',{isEnded:true});"
+                        "}"
+                        "if(window.wx&&wx.publishPageEvent){"
+                        "  wx.publishPageEvent('onRewardedVideoAdClose',{isEnded:true});"
+                        "}"
+                        "}catch(ex){}";
+                    [foundWebView evaluateJavaScript:js completionHandler:^(id r, NSError *e) {
+                        jj_dbg([NSString stringWithFormat:@"[广告] 策略3: JS注入 result=%@ err=%@", r, e.localizedDescription]);
+                    }];
+                    jj_dbg(@"[广告] 策略3: 已注入JS");
+                } else {
+                    jj_dbg(@"[广告] 策略3: 未找到WKWebView");
+                }
             }
-        } @catch (NSException *e) {
-            jj_dbg([NSString stringWithFormat:@"[广告] ❌ onGameRewards异常=%@", e.reason]);
-        }
+        } @catch (NSException *e) {}
+        
+        // 策略4：dismiss弹出的广告VC
+        @try {
+            UIViewController *presented = self.presentedViewController;
+            if (presented) {
+                jj_dbg([NSString stringWithFormat:@"[广告] 策略4: presentedVC=%@", NSStringFromClass([presented class])]);
+                [presented dismissViewControllerAnimated:NO completion:nil];
+            }
+        } @catch (NSException *e) {}
         
         jj_removeAdToolbar(self);
         
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        // 延迟后再次尝试关闭
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try {
                 UILabel *closeLabel = jj_findLabelWithText(self.view, @"\u5173\u95ed");
-                jj_dbg([NSString stringWithFormat:@"[广告] 关闭按钮=%@", closeLabel ? closeLabel.text : @"未找到"]);
                 if (closeLabel) {
                     jj_triggerCloseAction(closeLabel);
-                    jj_dbg(@"[广告] ✅ 已触发关闭");
+                    jj_dbg(@"[广告] 延迟关闭: ✅ 已触发");
                 }
-            } @catch (NSException *e) {
-                jj_dbg([NSString stringWithFormat:@"[广告] ❌ 关闭异常=%@", e.reason]);
-            }
+            } @catch (NSException *e) {}
         });
         return;
     }

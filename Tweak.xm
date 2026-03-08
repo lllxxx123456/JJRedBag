@@ -417,20 +417,35 @@ static void jj_dbg(NSString *msg) {
     } @catch (NSException *e) { jj_dbg(@"× 收款状态异常"); return; }
     
     // 检查是否是发给自己的转账
-    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-    CContact *selfContact = [contactMgr getSelfContact];
-    NSString *selfUserName = [selfContact m_nsUsrName];
+    NSString *selfUserName = nil;
+    @try {
+        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+        jj_dbg([NSString stringWithFormat:@"contactMgr: %@", contactMgr ? @"OK" : @"nil"]);
+        CContact *selfContact = [contactMgr getSelfContact];
+        jj_dbg([NSString stringWithFormat:@"selfContact: %@", selfContact ? @"OK" : @"nil"]);
+        selfUserName = [selfContact m_nsUsrName];
+        jj_dbg([NSString stringWithFormat:@"自己: %@", selfUserName]);
+    } @catch (NSException *e) {
+        jj_dbg([NSString stringWithFormat:@"× 获取自己信息崩溃: %@", e.reason]);
+        return;
+    }
     
     NSString *receiverUsername = nil;
     @try {
         id rawReceiver = [payInfo performSelector:@selector(transfer_receiver_username)];
+        jj_dbg([NSString stringWithFormat:@"rawReceiver类型: %@ 值: %@", NSStringFromClass([rawReceiver class]), rawReceiver]);
         if ([rawReceiver isKindOfClass:[NSString class]]) receiverUsername = rawReceiver;
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) {
+        jj_dbg([NSString stringWithFormat:@"× transfer_receiver_username异常: %@", e.reason]);
+    }
     if (!receiverUsername || receiverUsername.length == 0) {
         @try {
             id rawExclusive = [payInfo performSelector:@selector(exclusive_recv_username)];
+            jj_dbg([NSString stringWithFormat:@"rawExclusive: %@", rawExclusive]);
             if ([rawExclusive isKindOfClass:[NSString class]] && [rawExclusive length] > 0) receiverUsername = rawExclusive;
-        } @catch (NSException *e) {}
+        } @catch (NSException *e) {
+            jj_dbg([NSString stringWithFormat:@"× exclusive_recv_username异常: %@", e.reason]);
+        }
     }
     jj_dbg([NSString stringWithFormat:@"接收者: %@ 自己: %@", receiverUsername, selfUserName]);
     if (!receiverUsername || ![receiverUsername isEqualToString:selfUserName]) {
@@ -733,6 +748,44 @@ static void jj_dbg(NSString *msg) {
         }
     }
     %orig(msg, msgWrap);
+}
+
+%end
+
+#pragma mark - 临时监控：WCPayLogicMgr方法调用链（确认后删除）
+
+%hook WCPayLogicMgr
+
+- (void)ConfirmTransferMoney:(id)arg1 {
+    jj_dbg([NSString stringWithFormat:@"[WCPay] ConfirmTransferMoney: 参数类型=%@ 地址=%p", NSStringFromClass([arg1 class]), arg1]);
+    // dump所有属性
+    @try {
+        unsigned int propCount = 0;
+        objc_property_t *props = class_copyPropertyList([arg1 class], &propCount);
+        for (unsigned int i = 0; i < propCount; i++) {
+            NSString *propName = [NSString stringWithUTF8String:property_getName(props[i])];
+            id value = nil;
+            @try { value = [arg1 valueForKey:propName]; } @catch(NSException *e) {}
+            jj_dbg([NSString stringWithFormat:@"  %@=%@", propName, value ?: @"nil"]);
+        }
+        free(props);
+    } @catch (NSException *e) {}
+    %orig;
+}
+
+- (void)handleWCPayFacingReceiveMoneyMsg:(id)arg1 msgType:(int)arg2 {
+    jj_dbg([NSString stringWithFormat:@"[WCPay] handleWCPayFacingReceiveMoneyMsg: type=%d 参数类型=%@", arg2, NSStringFromClass([arg1 class])]);
+    %orig;
+}
+
+- (void)CheckTransferMoneyStatus:(id)arg1 {
+    jj_dbg([NSString stringWithFormat:@"[WCPay] CheckTransferMoneyStatus: 参数类型=%@", NSStringFromClass([arg1 class])]);
+    %orig;
+}
+
+- (void)insideCallBackOnConfirmTransferMoneyResponse:(id)arg1 OnRequest:(id)arg2 {
+    jj_dbg([NSString stringWithFormat:@"[WCPay] 收款回调Response: %@ Request: %@", NSStringFromClass([arg1 class]), NSStringFromClass([arg2 class])]);
+    %orig;
 }
 
 %end

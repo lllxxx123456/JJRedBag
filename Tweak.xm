@@ -306,11 +306,13 @@ static void jj_showDebugWindow(void) {
     
     // 检查是否应该抢这个红包（模式判断）
     if (![manager shouldGrabRedBagInChat:chatId isGroup:isGroup]) {
+        jj_dbg([NSString stringWithFormat:@"[红包] 跳过(模式不匹配) chatId=%@", chatId]);
         return;
     }
     
     // 私聊红包判断
     if (!isGroup && !manager.grabPrivateEnabled) {
+        jj_dbg(@"[红包] 跳过(私聊未启用)");
         return;
     }
     
@@ -361,6 +363,7 @@ static void jj_showDebugWindow(void) {
     context[@"content"] = title; // 红包标题
     
     // 执行抢红包
+    jj_dbg([NSString stringWithFormat:@"[红包] 检测到红包 delay=%.1fs isGroup=%d isSelf=%d chatId=%@", delay, isGroup, isGroupSender, chatId]);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [self jj_openRedBagWithContext:context];
     });
@@ -433,9 +436,12 @@ static void jj_showDebugWindow(void) {
                                               getService:objc_getClass("WCRedEnvelopesLogicMgr")];
         if (logicMgr) {
             [logicMgr ReceiverQueryRedEnvelopesRequest:reqParams];
+            jj_dbg([NSString stringWithFormat:@"[红包] 已发送查询请求 sendId=%@", sendId]);
+        } else {
+            jj_dbg(@"[红包] ❌ 无法获取WCRedEnvelopesLogicMgr");
         }
     } @catch (NSException *exception) {
-        // 静默处理
+        jj_dbg([NSString stringWithFormat:@"[红包] ❌ openRedBag异常=%@", exception.reason]);
     }
 }
 
@@ -564,9 +570,17 @@ static void jj_showDebugWindow(void) {
         id rawPayer = [payInfo performSelector:@selector(transfer_payer_username)];
         if ([rawPayer isKindOfClass:[NSString class]]) payerUsername = [rawPayer copy];
         
-        id rawFee = [payInfo performSelector:@selector(m_total_fee)];
-        if ([rawFee isKindOfClass:[NSString class]]) amountStr = [rawFee copy];
-        else if ([rawFee respondsToSelector:@selector(stringValue)]) amountStr = [[rawFee stringValue] copy];
+        // m_total_fee在8.0.69为null，改用m_nsFeeDesc（格式：¥0.01，单位为元）
+        // 转换为分存储：¥0.01 → 去¥ → 0.01元 → ×100 → 1分（与totalReceiveAmount单位一致）
+        id rawFeeDesc = [payInfo performSelector:@selector(m_nsFeeDesc)];
+        if ([rawFeeDesc isKindOfClass:[NSString class]] && [rawFeeDesc length] > 0) {
+            NSString *feeStr = (NSString *)rawFeeDesc;
+            feeStr = [feeStr stringByReplacingOccurrencesOfString:@"¥" withString:@""];
+            feeStr = [feeStr stringByReplacingOccurrencesOfString:@"￥" withString:@""];
+            double yuan = [feeStr doubleValue];
+            amountStr = [NSString stringWithFormat:@"%lld", (long long)(yuan * 100)];
+            jj_dbg([NSString stringWithFormat:@"[金额] feeDesc=%@ → %@分 → %.2f元", rawFeeDesc, amountStr, yuan]);
+        }
         
         id rawMemo = [payInfo performSelector:@selector(m_payMemo)];
         if ([rawMemo isKindOfClass:[NSString class]]) memo = [rawMemo copy];
@@ -594,6 +608,7 @@ static void jj_showDebugWindow(void) {
     confirmParams[@"payerUsername"] = payerUsername;
     confirmParams[@"amount"] = amountStr;
     confirmParams[@"memo"] = memo;
+    confirmParams[@"selfUser"] = selfUserName;
     
     // dump金额相关属性调试
     static BOOL jj_dumpedFee = NO;
@@ -660,9 +675,12 @@ static void jj_showDebugWindow(void) {
         if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
             jj_dbg([NSString stringWithFormat:@"[回复] 群聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
             @try {
+                NSString *selfUsr = confirmParams[@"selfUser"];
                 CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
                 replyWrap.m_nsContent = mgr.receiveAutoReplyContent;
                 replyWrap.m_nsToUsr = fromUserCopy;
+                replyWrap.m_nsFromUsr = selfUsr;
+                replyWrap.m_uiStatus = 1;
                 replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
                 [self AddMsg:fromUserCopy MsgWrap:replyWrap];
                 jj_dbg(@"[回复] ✅ 群聊回复已发送");
@@ -670,9 +688,12 @@ static void jj_showDebugWindow(void) {
         } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
             jj_dbg([NSString stringWithFormat:@"[回复] 私聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
             @try {
+                NSString *selfUsr = confirmParams[@"selfUser"];
                 CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
                 replyWrap.m_nsContent = mgr.receiveAutoReplyContent;
                 replyWrap.m_nsToUsr = fromUserCopy;
+                replyWrap.m_nsFromUsr = selfUsr;
+                replyWrap.m_uiStatus = 1;
                 replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
                 [self AddMsg:fromUserCopy MsgWrap:replyWrap];
                 jj_dbg(@"[回复] ✅ 私聊回复已发送");
@@ -691,9 +712,12 @@ static void jj_showDebugWindow(void) {
             if (memo.length > 0) [notifyMsg appendFormat:@"\n备注：%@", memo];
             jj_dbg([NSString stringWithFormat:@"[通知] to=%@", mgr.receiveNotificationChatId]);
             @try {
+                NSString *selfUsr = confirmParams[@"selfUser"];
                 CMessageWrap *notifyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
                 notifyWrap.m_nsContent = notifyMsg;
                 notifyWrap.m_nsToUsr = mgr.receiveNotificationChatId;
+                notifyWrap.m_nsFromUsr = selfUsr;
+                notifyWrap.m_uiStatus = 1;
                 notifyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
                 [self AddMsg:mgr.receiveNotificationChatId MsgWrap:notifyWrap];
                 jj_dbg(@"[通知] ✅ 通知已发送");
@@ -1107,52 +1131,41 @@ static void jj_stopAllBackgroundModes(void) {
         
         // 处理查询请求的响应 (cgiCmdid == 3)
         if (response.cgiCmdid == 3) {
-            // 从队列中取出参数
             JJRedBagParam *param = [[JJRedBagParamQueue sharedQueue] dequeue];
-            if (!param) return;
+            if (!param) { jj_dbg(@"[红包] 查询响应: 队列为空"); return; }
             
-            // 检查是否应该抢红包
-            // receiveStatus: 0=未领取, 2=已领取
-            // hbStatus: 2=可领取?, 4=过期/领完?
+            NSInteger receiveStatus = [responseDict[@"receiveStatus"] integerValue];
+            NSInteger hbStatus = [responseDict[@"hbStatus"] integerValue];
+            jj_dbg([NSString stringWithFormat:@"[红包] 查询响应 receiveStatus=%ld hbStatus=%ld sendId=%@", (long)receiveStatus, (long)hbStatus, param.sendId]);
             
-            // 如果已经领取过，不需要再抢
-            if ([responseDict[@"receiveStatus"] integerValue] == 2) {
-                // 如果在pending列表中，移除它，避免重复处理
-                if (param.sendId) {
-                    [manager.pendingRedBags removeObjectForKey:param.sendId];
-                }
+            if (receiveStatus == 2) {
+                if (param.sendId) [manager.pendingRedBags removeObjectForKey:param.sendId];
+                jj_dbg(@"[红包] 跳过(已领取)");
                 return;
             }
             
-            // 红包被抢完
-            if ([responseDict[@"hbStatus"] integerValue] == 4) {
-                 if (param.sendId) {
-                    [manager.pendingRedBags removeObjectForKey:param.sendId];
-                }
+            if (hbStatus == 4) {
+                if (param.sendId) [manager.pendingRedBags removeObjectForKey:param.sendId];
+                jj_dbg(@"[红包] 跳过(已抢完/过期)");
                 return;
             }
             
-            // 没有timingIdentifier会被判定为使用外挂
-            if (!responseDict[@"timingIdentifier"]) return;
+            if (!responseDict[@"timingIdentifier"]) { jj_dbg(@"[红包] ❌ 无timingIdentifier"); return; }
             
-            // 设置timingIdentifier
             param.timingIdentifier = responseDict[@"timingIdentifier"];
-            
-            // 计算延迟时间
             NSTimeInterval delay = [manager getDelayTimeForChat:param.sessionUserName];
             
             if (delay > 0) {
-                // 有延迟，走任务队列
                 unsigned int delayMs = (unsigned int)(delay * 1000);
-                // 创建抢红包操作
                 JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
                 [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
+                jj_dbg([NSString stringWithFormat:@"[红包] 已加入队列 delay=%ums", delayMs]);
             } else {
-                // 极速模式：直接开，不走队列
                 WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                                       getService:objc_getClass("WCRedEnvelopesLogicMgr")];
                 if (logicMgr) {
                     [logicMgr OpenRedEnvelopesRequest:[param toParams]];
+                    jj_dbg(@"[红包] ✅ 极速模式已发送拆包请求");
                 }
             }
             
@@ -1176,29 +1189,28 @@ static void jj_stopAllBackgroundModes(void) {
             
             // 检查是否抢到金额
             long long amount = [responseDict[@"amount"] longLongValue];
+            jj_dbg([NSString stringWithFormat:@"[红包] 拆包响应 sendId=%@ amount=%lld", sendId, amount]);
             if (amount > 0) {
-                // 获取红包总金额
                 long long totalAmount = [responseDict[@"totalAmount"] longLongValue];
                 param.totalAmount = totalAmount;
                 
-                // 累加金额
                 manager.totalAmount += amount;
                 [manager saveSettings];
                 
-                // 复制param的关键信息，避免在异步块中访问可能被释放的对象
-                JJRedBagParam *paramCopy = param;
+                jj_dbg([NSString stringWithFormat:@"[红包] ✅ 抢到 %.2f元 累计%.2f元", amount/100.0, manager.totalAmount/100.0]);
                 
-                // 抢到红包，执行自动回复和通知
-                // 切换到主线程执行UI和消息发送相关操作
+                JJRedBagParam *paramCopy = param;
                 dispatch_async(dispatch_get_main_queue(), ^{
                     @try {
                         [self jj_sendAutoReply:paramCopy];
                         [self jj_sendNotification:paramCopy amount:amount];
                         [self jj_sendLocalNotification:paramCopy amount:amount];
                     } @catch (NSException *exception) {
-                        // 静默处理
+                        jj_dbg([NSString stringWithFormat:@"[红包] ❌ 回复/通知异常=%@", exception.reason]);
                     }
                 });
+            } else {
+                jj_dbg(@"[红包] 未抢到(金额=0)");
             }
         }
         
@@ -2085,6 +2097,8 @@ static void jj_showScaleActionSheet(void) {
 %new
 - (void)jj_onEmoticonResize {
     @try {
+        jj_dbg(@"[表情] 点击大大小小");
+        
         // 通过getMsgCmessageWrap获取CMessageWrap
         CMessageWrap *msgWrap = nil;
         if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
@@ -2097,6 +2111,8 @@ static void jj_showScaleActionSheet(void) {
             if (vm && [vm respondsToSelector:@selector(messageWrap)]) msgWrap = [vm performSelector:@selector(messageWrap)];
         }
         
+        jj_dbg([NSString stringWithFormat:@"[表情] msgWrap=%@ content=%@", msgWrap ? @"有" : @"无", msgWrap.m_nsContent.length > 30 ? [msgWrap.m_nsContent substringToIndex:30] : msgWrap.m_nsContent]);
+        
         if (!msgWrap || !msgWrap.m_nsContent || msgWrap.m_nsContent.length == 0) return;
         
         // 保存全局状态
@@ -2107,10 +2123,12 @@ static void jj_showScaleActionSheet(void) {
         jj_currentEmoticonData = nil;
         jj_currentIsGIF = NO;
         
-        // 【核心改动】立即从视图中抓取表情数据并缓存到临时文件
-        // 此时表情正在屏幕上显示，是获取数据最可靠的时机
-        jj_deleteCachedEmoticon(); // 清理上次残留的缓存
+        jj_dbg([NSString stringWithFormat:@"[表情] chatUser=%@ md5=%@", jj_currentChatUserName ?: @"空", msgWrap.m_nsEmoticonMD5 ?: @"空"]);
+        
+        // 立即从视图中抓取表情数据并缓存到临时文件
+        jj_deleteCachedEmoticon();
         NSData *capturedData = jj_captureEmoticonFromView(self, msgWrap);
+        jj_dbg([NSString stringWithFormat:@"[表情] 抓取数据=%@ bytes", capturedData ? @(capturedData.length) : @"nil"]);
         if (capturedData && capturedData.length > 0) {
             jj_cacheEmoticonData(capturedData);
         }
@@ -2123,7 +2141,9 @@ static void jj_showScaleActionSheet(void) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             jj_showScaleActionSheet();
         });
-    } @catch (NSException *exception) {}
+    } @catch (NSException *exception) {
+        jj_dbg([NSString stringWithFormat:@"[表情] ❌ 异常=%@", exception.reason]);
+    }
 }
 
 %end
@@ -2372,6 +2392,7 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     // 检测广告倒计时标签是否存在（"X 秒后可获得奖励"）
     UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
     if (adLabel && ![self.view viewWithTag:jj_adToolbarTag]) {
+        jj_dbg([NSString stringWithFormat:@"[广告] 检测到倒计时: %@", adLabel.text]);
         jj_addAdToolbar(self);
     }
     
@@ -2379,6 +2400,7 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     if (!adLabel && [self.view viewWithTag:jj_adToolbarTag]) {
         UILabel *doneLabel = jj_findLabelWithText(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
         if (doneLabel) {
+            jj_dbg(@"[广告] 已获得奖励，移除工具栏");
             jj_removeAdToolbar(self);
         }
     }
@@ -2395,23 +2417,54 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     
     if (idx == 2) {
         // 跳过广告按钮
-        @try {
-            // 1. 触发奖励回调
-            if ([self respondsToSelector:@selector(onGameRewards)]) {
-                [self onGameRewards];
+        jj_dbg(@"[广告] 点击跳过广告");
+        BOOL hasReward = [self respondsToSelector:@selector(onGameRewards)];
+        jj_dbg([NSString stringWithFormat:@"[广告] onGameRewards=%@", hasReward ? @"存在" : @"不存在"]);
+        
+        // dump WAWebViewController相关方法（仅首次）
+        static BOOL jj_dumpedAdMethods = NO;
+        if (!jj_dumpedAdMethods) {
+            jj_dumpedAdMethods = YES;
+            unsigned int mc = 0;
+            Method *ml = class_copyMethodList([self class], &mc);
+            NSMutableArray *adMethods = [NSMutableArray array];
+            for (unsigned int i = 0; i < mc; i++) {
+                NSString *mn = NSStringFromSelector(method_getName(ml[i]));
+                NSString *lower = [mn lowercaseString];
+                if ([lower containsString:@"game"] || [lower containsString:@"reward"] || 
+                    [lower containsString:@"ad"] || [lower containsString:@"close"] ||
+                    [lower containsString:@"skip"] || [lower containsString:@"finish"]) {
+                    [adMethods addObject:mn];
+                }
             }
-        } @catch (NSException *e) {}
+            free(ml);
+            for (NSString *m in adMethods) {
+                jj_dbg([NSString stringWithFormat:@"[广告方法] %@", m]);
+            }
+        }
+        
+        @try {
+            if (hasReward) {
+                [self onGameRewards];
+                jj_dbg(@"[广告] ✅ onGameRewards已调用");
+            }
+        } @catch (NSException *e) {
+            jj_dbg([NSString stringWithFormat:@"[广告] ❌ onGameRewards异常=%@", e.reason]);
+        }
         
         jj_removeAdToolbar(self);
         
-        // 2. 延迟后模拟点击"关闭"按钮
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try {
                 UILabel *closeLabel = jj_findLabelWithText(self.view, @"\u5173\u95ed");
+                jj_dbg([NSString stringWithFormat:@"[广告] 关闭按钮=%@", closeLabel ? closeLabel.text : @"未找到"]);
                 if (closeLabel) {
                     jj_triggerCloseAction(closeLabel);
+                    jj_dbg(@"[广告] ✅ 已触发关闭");
                 }
-            } @catch (NSException *e) {}
+            } @catch (NSException *e) {
+                jj_dbg([NSString stringWithFormat:@"[广告] ❌ 关闭异常=%@", e.reason]);
+            }
         });
         return;
     }
@@ -2420,6 +2473,7 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     CGFloat speeds[] = {5.0, 10.0};
     jj_adTimerSpeedMultiplier = speeds[idx];
     jj_adSpeedActive = YES;
+    jj_dbg([NSString stringWithFormat:@"[广告] 加速 %.0fx", speeds[idx]]);
     
     // 更新按钮高亮状态
     UIView *toolbar = [self.view viewWithTag:jj_adToolbarTag];

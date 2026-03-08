@@ -10,6 +10,36 @@
 // GIF的UTI标识符（避免依赖MobileCoreServices中已废弃的kUTTypeGIF）
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
+// ===== 临时调试悬浮窗（确认问题后删除）=====
+static UITextView *jj_debugLogView = nil;
+static NSMutableString *jj_debugLog = nil;
+
+static void jj_dbg(NSString *msg) {
+    if (!jj_debugLog) jj_debugLog = [NSMutableString new];
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    [fmt setDateFormat:@"HH:mm:ss"];
+    [jj_debugLog appendFormat:@"[%@] %@\n", [fmt stringFromDate:[NSDate date]], msg];
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!jj_debugLogView) {
+            jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(5, 80, 350, 250)];
+            jj_debugLogView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.8];
+            jj_debugLogView.textColor = [UIColor greenColor];
+            jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:9];
+            jj_debugLogView.editable = NO;
+            jj_debugLogView.layer.cornerRadius = 8;
+            jj_debugLogView.layer.zPosition = 99999;
+            jj_debugLogView.userInteractionEnabled = YES;
+            [[UIApplication sharedApplication].keyWindow addSubview:jj_debugLogView];
+        }
+        jj_debugLogView.text = jj_debugLog;
+        if (jj_debugLogView.text.length > 0) {
+            [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLogView.text.length - 1, 1)];
+        }
+    });
+}
+// ===== 临时调试悬浮窗结束 =====
+
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
 + (instancetype)sharedInstance;
@@ -116,10 +146,14 @@
                                 ([content rangeOfString:@"c2c_transfer"].location != NSNotFound) ||
                                 ([content rangeOfString:@"wcpay://c2cbizmessagehandler"].location != NSNotFound);
             isTransferMsg = hasTransferId && (subTypeMatch || contentMatch);
+            jj_dbg([NSString stringWithFormat:@"转账检测: hasId=%d subType=%d(%u) content=%d => %d", hasTransferId, subTypeMatch, payInfo.m_uiPaySubType, contentMatch, isTransferMsg]);
         } @catch (NSException *e) {}
+    } else {
+        jj_dbg(@"收到type49消息 但payInfo为空");
     }
     
     if (isTransferMsg) {
+        jj_dbg(@">>> 进入jj_processTransferMessage");
         [self jj_processTransferMessage:msgWrap];
         return;
     }
@@ -367,13 +401,20 @@
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     
     id rawPayInfo2 = [msgWrap m_oWCPayInfoItem];
-    if (!rawPayInfo2 || ![rawPayInfo2 isKindOfClass:objc_getClass("WCPayInfoItem")]) return;
+    if (!rawPayInfo2 || ![rawPayInfo2 isKindOfClass:objc_getClass("WCPayInfoItem")]) {
+        jj_dbg(@"× payInfo为空或类型不对");
+        return;
+    }
     WCPayInfoItem *payInfo = (WCPayInfoItem *)rawPayInfo2;
     
     // 检查是否已收款
     @try {
-        if (payInfo.m_c2cPayReceiveStatus != 0) return;
-    } @catch (NSException *e) { return; }
+        jj_dbg([NSString stringWithFormat:@"收款状态: %d (0=待收)", payInfo.m_c2cPayReceiveStatus]);
+        if (payInfo.m_c2cPayReceiveStatus != 0) {
+            jj_dbg(@"× 已收款，跳过");
+            return;
+        }
+    } @catch (NSException *e) { jj_dbg(@"× 收款状态异常"); return; }
     
     // 检查是否是发给自己的转账
     CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
@@ -391,18 +432,24 @@
             if ([rawExclusive isKindOfClass:[NSString class]] && [rawExclusive length] > 0) receiverUsername = rawExclusive;
         } @catch (NSException *e) {}
     }
-    if (!receiverUsername || ![receiverUsername isEqualToString:selfUserName]) return;
+    jj_dbg([NSString stringWithFormat:@"接收者: %@ 自己: %@", receiverUsername, selfUserName]);
+    if (!receiverUsername || ![receiverUsername isEqualToString:selfUserName]) {
+        jj_dbg(@"× 不是发给自己的转账");
+        return;
+    }
     
     NSString *fromUser = msgWrap.m_nsFromUsr;
     BOOL isGroup = [fromUser rangeOfString:@"@chatroom"].location != NSNotFound;
+    jj_dbg([NSString stringWithFormat:@"来源: %@ 群聊: %d", fromUser, isGroup]);
     
     // 检查开关
     if (isGroup) {
-        if (!manager.autoReceiveGroupEnabled) return;
+        jj_dbg([NSString stringWithFormat:@"群收款开关: %d", manager.autoReceiveGroupEnabled]);
+        if (!manager.autoReceiveGroupEnabled) { jj_dbg(@"× 群收款未开启"); return; }
         
         // 检查是否指定了收款群
         if (manager.receiveGroups.count > 0) {
-            if (![manager.receiveGroups containsObject:fromUser]) return;
+            if (![manager.receiveGroups containsObject:fromUser]) { jj_dbg(@"× 不在指定收款群"); return; }
             
             // 检查是否指定了群成员
             NSArray *allowedMembers = manager.groupReceiveMembers[fromUser];
@@ -412,11 +459,12 @@
                     id rawPayer = [payInfo performSelector:@selector(transfer_payer_username)];
                     if ([rawPayer isKindOfClass:[NSString class]]) payerUsr = rawPayer;
                 } @catch (NSException *e) {}
-                if (!payerUsr || ![allowedMembers containsObject:payerUsr]) return;
+                if (!payerUsr || ![allowedMembers containsObject:payerUsr]) { jj_dbg(@"× 不在指定群成员"); return; }
             }
         }
     } else {
-        if (!manager.autoReceivePrivateEnabled) return;
+        jj_dbg([NSString stringWithFormat:@"私聊收款开关: %d", manager.autoReceivePrivateEnabled]);
+        if (!manager.autoReceivePrivateEnabled) { jj_dbg(@"× 私聊收款未开启"); return; }
     }
     
     // 在进入异步块之前复制所有需要的值，避免访问已释放的对象
@@ -454,6 +502,9 @@
         if (rawInvalidTime) invalidTime = (unsigned int)(uintptr_t)rawInvalidTime;
     } @catch (NSException *e) {}
     
+    jj_dbg([NSString stringWithFormat:@"transferId: %@", transferId]);
+    jj_dbg([NSString stringWithFormat:@"payer: %@ amount: %@ invalidTime: %u", payerUsername, amountStr, invalidTime]);
+    
     long long amountValue = [amountStr longLongValue];
     NSString *fromUserCopy = [fromUser copy];
     BOOL isGroupCopy = isGroup;
@@ -470,15 +521,19 @@
     confirmParams[@"amount"] = amountStr;
     confirmParams[@"memo"] = memo;
     
+    jj_dbg(@"✓ 条件全部通过，1秒后执行收款...");
+    
     // 执行自动收款
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
             WCPayLogicMgr *payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
                                           getService:objc_getClass("WCPayLogicMgr")];
+            jj_dbg([NSString stringWithFormat:@"payLogicMgr: %@", payLogicMgr ? @"OK" : @"nil"]);
             if (payLogicMgr) {
                 // 构造WCPayConfirmTransferRequest实现纯后台静默收款
                 @try {
                     WCPayConfirmTransferRequest *request = [[objc_getClass("WCPayConfirmTransferRequest") alloc] init];
+                    jj_dbg([NSString stringWithFormat:@"request对象: %@", request ? @"OK" : @"创建失败"]);
                     request.m_nsTransferID = transferIdCopy;
                     request.m_nsFromUserName = payerUsernameCopy;
                     request.m_uiInvalidTime = invalidTime;
@@ -491,11 +546,18 @@
                         request.groupType = 0;
                     }
                     
+                    jj_dbg([NSString stringWithFormat:@"request: id=%@ from=%@ time=%u group=%d", 
+                            request.m_nsTransferID, request.m_nsFromUserName, request.m_uiInvalidTime, request.groupType]);
+                    
                     if ([payLogicMgr respondsToSelector:@selector(ConfirmTransferMoney:)]) {
+                        jj_dbg(@">>> 调用 ConfirmTransferMoney:");
                         [payLogicMgr ConfirmTransferMoney:request];
+                        jj_dbg(@"✓ ConfirmTransferMoney 调用完成");
+                    } else {
+                        jj_dbg(@"× ConfirmTransferMoney 方法不存在");
                     }
                 } @catch (NSException *e) {
-                    // 静默处理
+                    jj_dbg([NSString stringWithFormat:@"× 收款异常: %@", e.reason]);
                 }
                 
                 // 更新累计金额

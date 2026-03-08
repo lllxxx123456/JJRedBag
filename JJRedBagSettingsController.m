@@ -105,27 +105,50 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
 
 - (void)loadAvatar {
     NSString *doc = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-    NSString *path = [doc stringByAppendingPathComponent:@"jjredbag_avatar.png"];
-    UIImage *custom = [UIImage imageWithContentsOfFile:path];
+    NSString *customPath = [doc stringByAppendingPathComponent:@"jjredbag_avatar.png"];
+    NSString *cachedPath = [doc stringByAppendingPathComponent:@"jjredbag_wechat_avatar.png"];
+    UIImage *custom = [UIImage imageWithContentsOfFile:customPath];
+    UIImage *cached = custom ? nil : [UIImage imageWithContentsOfFile:cachedPath];
+    
+    // 优先级：自定义头像 > 缓存微信头像 > 占位符
     if (custom) { self.avatarView.image = custom; }
+    else if (cached) { self.avatarView.image = cached; }
     else { self.avatarView.image = [self placeholderAvatar]; }
-    @try {
-        CContactMgr *cm = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
-        CContact *me = [cm getSelfContact];
-        NSString *nick = me.m_nsNickName;
-        self.nameLabel.text = (nick.length > 0) ? nick : @"吉酱助手";
-        if (!custom) {
-            NSString *url = me.m_nsHeadImgUrl;
-            if (url.length > 0) {
-                dispatch_async(dispatch_get_global_queue(0, 0), ^{
-                    NSData *d = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
-                    if (d) { UIImage *img = [UIImage imageWithData:d];
-                        if (img) dispatch_async(dispatch_get_main_queue(), ^{ self.avatarView.image = img; });
-                    }
-                });
+    
+    // 加载缓存昵称
+    NSString *cachedNick = [[NSUserDefaults standardUserDefaults] stringForKey:@"jj_cached_nickname"];
+    self.nameLabel.text = (cachedNick.length > 0) ? cachedNick : @"吉酱助手";
+    
+    // 后台尝试获取最新微信头像和昵称
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        @try {
+            CContactMgr *cm = nil;
+            @try { cm = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")]; } @catch (NSException *e) {}
+            if (!cm) return;
+            CContact *me = [cm getSelfContact];
+            if (!me) return;
+            
+            NSString *nick = me.m_nsNickName;
+            if (nick.length > 0) {
+                [[NSUserDefaults standardUserDefaults] setObject:nick forKey:@"jj_cached_nickname"];
+                dispatch_async(dispatch_get_main_queue(), ^{ self.nameLabel.text = nick; });
             }
-        }
-    } @catch (NSException *e) { self.nameLabel.text = @"吉酱助手"; }
+            
+            if (!custom) {
+                NSString *url = me.m_nsHeadImgUrl;
+                if (url.length > 0) {
+                    NSData *d = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
+                    if (d) {
+                        UIImage *img = [UIImage imageWithData:d];
+                        if (img) {
+                            [d writeToFile:cachedPath atomically:YES];
+                            dispatch_async(dispatch_get_main_queue(), ^{ self.avatarView.image = img; });
+                        }
+                    }
+                }
+            }
+        } @catch (NSException *e) {}
+    });
 }
 
 - (UIImage *)placeholderAvatar {
@@ -174,7 +197,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker { [picker dismissViewControllerAnimated:YES completion:nil]; }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (section==0)?1:9; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (section==0)?1:7; }
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section { return (section==0)?8:16; }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return nil; }
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath { return (indexPath.section==0)?50:56; }
@@ -194,8 +217,8 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u56de\u590d", @"\u901a\u77e5\u7edf\u8ba1", @"\u81ea\u52a8\u6536\u6b3e", @"\u8868\u60c5\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
-    NSArray *subs = @[@"\u62a2\u7ea2\u5305\u6a21\u5f0f\u4e0e\u8fc7\u6ee4", @"\u4fdd\u6d3b\u3001\u6447\u4e00\u6447\u914d\u7f6e", @"\u62a2\u7ea2\u5305\u540e\u81ea\u52a8\u56de\u590d", @"\u62a2\u7ea2\u5305\u901a\u77e5\u63a8\u9001", @"\u81ea\u52a8\u786e\u8ba4\u8f6c\u8d26\u6536\u6b3e", @"\u8868\u60c5\u5305\u7f29\u653e\u529f\u80fd", @"\u9690\u85cf\u591a\u4f59\u754c\u9762\u5143\u7d20", @"\u9ab0\u5b50\u731c\u62f3\u7ed3\u679c\u63a7\u5236", @"\u5c0f\u7a0b\u5e8f\u6fc0\u52b1\u5e7f\u544a"];
+    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u6536\u6b3e", @"\u8868\u60c5\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
+    NSArray *subs = @[@"\u62a2\u7ea2\u5305\u3001\u56de\u590d\u3001\u901a\u77e5", @"\u4fdd\u6d3b\u3001\u6447\u4e00\u6447\u914d\u7f6e", @"\u81ea\u52a8\u786e\u8ba4\u8f6c\u8d26\u6536\u6b3e", @"\u8868\u60c5\u5305\u7f29\u653e\u529f\u80fd", @"\u9690\u85cf\u591a\u4f59\u754c\u9762\u5143\u7d20", @"\u9ab0\u5b50\u731c\u62f3\u7ed3\u679c\u63a7\u5236", @"\u5c0f\u7a0b\u5e8f\u6fc0\u52b1\u5e7f\u544a"];
     NSInteger r = indexPath.row;
     cell.textLabel.text = titles[r];
     cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
@@ -211,8 +234,8 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     }
     if (@available(iOS 13.0, *)) {
-        NSArray *icons = @[@"envelope.fill", @"gearshape.2.fill", @"arrowshape.turn.up.left.fill", @"bell.badge.fill", @"yensign.circle.fill", @"face.smiling.fill", @"paintbrush.fill", @"gamecontroller.fill", @"forward.fill"];
-        NSArray *clrs = @[[UIColor systemRedColor],[UIColor systemOrangeColor],[UIColor systemGreenColor],[UIColor systemBlueColor],[UIColor systemPurpleColor],[UIColor systemPinkColor],[UIColor systemTealColor],[UIColor systemIndigoColor],[UIColor systemYellowColor]];
+        NSArray *icons = @[@"envelope.fill", @"gearshape.2.fill", @"yensign.circle.fill", @"face.smiling.fill", @"paintbrush.fill", @"gamecontroller.fill", @"forward.fill"];
+        NSArray *clrs = @[[UIColor systemRedColor],[UIColor systemOrangeColor],[UIColor systemPurpleColor],[UIColor systemPinkColor],[UIColor systemTealColor],[UIColor systemIndigoColor],[UIColor systemYellowColor]];
         UIColor *bgColor = pluginEnabled ? clrs[r] : [UIColor tertiarySystemFillColor];
         UIView *bg = [[UIView alloc] initWithFrame:CGRectMake(0,0,30,30)];
         bg.backgroundColor = bgColor; bg.layer.cornerRadius = 7; bg.layer.masksToBounds = YES;
@@ -231,8 +254,9 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (indexPath.section == 0) return;
     if (![JJRedBagManager sharedManager].enabled) return;
-    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u56de\u590d", @"\u901a\u77e5\u7edf\u8ba1", @"\u81ea\u52a8\u6536\u6b3e", @"\u8868\u60c5\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
-    JJSubSettingsController *vc = [[JJSubSettingsController alloc] initWithPageType:(JJSubPageType)indexPath.row title:titles[indexPath.row]];
+    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u6536\u6b3e", @"\u8868\u60c5\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
+    NSArray *pageTypes = @[@(JJSubPageRedBag), @(JJSubPageAdvanced), @(JJSubPageReceive), @(JJSubPageEmoticon), @(JJSubPageUI), @(JJSubPageGameCheat), @(JJSubPageAdSkip)];
+    JJSubSettingsController *vc = [[JJSubSettingsController alloc] initWithPageType:(JJSubPageType)[pageTypes[indexPath.row] integerValue] title:titles[indexPath.row]];
     [self.navigationController pushViewController:vc animated:YES];
 }
 
@@ -302,6 +326,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             }
             count++; // 过滤关键词开关
             if (manager.filterKeywordEnabled) count++; // 关键词列表
+            count += 2; // 自动回复 + 通知统计
             return count;
         }
         case JJSubPageAdvanced: {
@@ -410,7 +435,19 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     }
     ci++;
     if (m.filterKeywordEnabled && row == ci) {
-        cell.textLabel.text = @"\u5173\u952e\u8bcd\u5217\u8868"; cell.detailTextLabel.text = m.filterKeywords.count > 0 ? [m.filterKeywords componentsJoinedByString:@", "] : @"\u672a\u8bbe\u7f6e";
+        cell.textLabel.text = @"\u5173\u952e\u8bcd\u5217\u8868"; cell.detailTextLabel.text = m.filterKeywords.count > 0 ? [m.filterKeywords componentsJoinedByString:@", "] : @"\u672a\u8bbe\u7f6e"; return;
+    }
+    if (m.filterKeywordEnabled) ci++;
+    if (row == ci) {
+        cell.textLabel.text = @"\u81ea\u52a8\u56de\u590d";
+        cell.detailTextLabel.text = m.autoReplyEnabled ? @"\u5df2\u5f00\u542f" : @"\u672a\u5f00\u542f";
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; return;
+    }
+    ci++;
+    if (row == ci) {
+        cell.textLabel.text = @"\u901a\u77e5\u7edf\u8ba1";
+        cell.detailTextLabel.text = m.notificationEnabled ? @"\u5df2\u5f00\u542f" : @"\u672a\u5f00\u542f";
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
 }
 
@@ -626,6 +663,16 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         ci += 2; // 跳过抢自己红包和抢私聊红包开关
         ci++; // 跳过过滤关键词开关
         if (manager.filterKeywordEnabled && row == ci) { [self showKeywordEditor]; return; }
+        if (manager.filterKeywordEnabled) ci++;
+        if (row == ci) {
+            JJSubSettingsController *vc = [[JJSubSettingsController alloc] initWithPageType:JJSubPageAutoReply title:@"\u81ea\u52a8\u56de\u590d"];
+            [self.navigationController pushViewController:vc animated:YES]; return;
+        }
+        ci++;
+        if (row == ci) {
+            JJSubSettingsController *vc = [[JJSubSettingsController alloc] initWithPageType:JJSubPageNotify title:@"\u901a\u77e5\u7edf\u8ba1"];
+            [self.navigationController pushViewController:vc animated:YES]; return;
+        }
     } else if (self.pageType == JJSubPageAdvanced) {
         NSInteger ci = 1;
         if (manager.backgroundGrabEnabled) { if (row == ci) { [self showBackgroundModeSelector]; return; } ci++; }
@@ -705,6 +752,15 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     if (sender.tag == 505) m.receiveNotificationEnabled = sender.on;
     if (sender.tag == 506) m.receiveLocalNotificationEnabled = sender.on;
     [m saveSettings]; [self.tableView reloadData];
+    
+    if ((sender.tag == 501 || sender.tag == 502) && sender.on) {
+        if (![[NSUserDefaults standardUserDefaults] boolForKey:@"jj_shown_receive_cache_hint"]) {
+            [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"jj_shown_receive_cache_hint"];
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u81ea\u52a8\u6536\u6b3e\u63d0\u793a" message:@"\u9996\u6b21\u4f7f\u7528\u81ea\u52a8\u6536\u6b3e\u529f\u80fd\u524d\uff0c\u8bf7\u5148\u624b\u52a8\u64cd\u4f5c\u4e00\u6b21\u4ee5\u6fc0\u6d3b\u7f13\u5b58\uff1a\n\n\u2022 \u624b\u52a8\u786e\u8ba4\u4e00\u7b14\u8f6c\u8d26\u6536\u6b3e\n\u2022 \u6216\u6253\u5f00\u4efb\u610f\u4e00\u6761\u8f6c\u8d26\u8be6\u60c5\u9875\n\n\u4e4b\u540e\u5373\u53ef\u5168\u81ea\u52a8\u6536\u6b3e\uff0c\u65e0\u9700\u91cd\u590d\u64cd\u4f5c\u3002" preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+    }
 }
 
 - (void)emoticonSwitchChanged:(UISwitch *)sender {

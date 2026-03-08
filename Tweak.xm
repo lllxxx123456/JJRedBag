@@ -61,7 +61,7 @@ static void jj_showDebugWindow(void);
     jj_debugContainer = nil; jj_debugLogView = nil; jj_debugVisible = NO;
     if (!jj_toggleWindow) {
         jj_toggleWindow = [[UIWindow alloc] initWithFrame:CGRectMake(5, 70, 60, 28)];
-        jj_toggleWindow.windowLevel = UIWindowLevelStatusBar + 200;
+        jj_toggleWindow.windowLevel = 10000001;
         jj_toggleWindow.backgroundColor = [UIColor clearColor];
         jj_toggleWindow.rootViewController = [[UIViewController alloc] init];
         jj_toggleWindow.rootViewController.view.backgroundColor = [UIColor clearColor];
@@ -115,7 +115,7 @@ static void jj_showDebugWindow(void) {
     
     // 使用独立UIWindow，windowLevel最高，确保在小程序等所有界面都可见可交互
     jj_debugWindow = [[JJPassthroughWindow alloc] initWithFrame:CGRectMake(0, 0, sw, sh)];
-    jj_debugWindow.windowLevel = UIWindowLevelStatusBar + 100;
+    jj_debugWindow.windowLevel = 10000000;
     jj_debugWindow.backgroundColor = [UIColor clearColor];
     jj_debugWindow.userInteractionEnabled = YES;
     
@@ -2338,10 +2338,11 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 static CGFloat jj_adTimerSpeedMultiplier = 1.0;
 static BOOL jj_adSpeedActive = NO;
 static NSInteger jj_adToolbarTag = 88990011;
+static JJPassthroughWindow *jj_adToolbarWindow = nil;
 
 static void jj_removeAdToolbar(UIViewController *vc) {
-    UIView *toolbar = [vc.view viewWithTag:jj_adToolbarTag];
-    if (toolbar) [toolbar removeFromSuperview];
+    jj_adToolbarWindow.hidden = YES;
+    jj_adToolbarWindow = nil;
     jj_adSpeedActive = NO;
     jj_adTimerSpeedMultiplier = 1.0;
 }
@@ -2401,12 +2402,19 @@ static void jj_triggerCloseAction(UILabel *closeLabel) {
 }
 
 static void jj_addAdToolbar(WAWebViewController *vc) {
-    if ([vc.view viewWithTag:jj_adToolbarTag]) return;
+    if (jj_adToolbarWindow) return;
     
-    CGFloat screenW = vc.view.bounds.size.width;
+    CGFloat screenW = [UIScreen mainScreen].bounds.size.width;
+    CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
     CGFloat btnW = 60, btnH = 36, spacing = 8, totalW = btnW * 3 + spacing * 2;
     CGFloat startX = (screenW - totalW) / 2.0;
     CGFloat topY = 44;
+    
+    // 使用独立Window承载工具栏，确保不被广告overlay遮挡
+    jj_adToolbarWindow = [[JJPassthroughWindow alloc] initWithFrame:CGRectMake(0, 0, screenW, screenH)];
+    jj_adToolbarWindow.windowLevel = 10000002;
+    jj_adToolbarWindow.backgroundColor = [UIColor clearColor];
+    jj_adToolbarWindow.userInteractionEnabled = YES;
     
     UIView *toolbar = [[UIView alloc] initWithFrame:CGRectMake(startX - 12, topY, totalW + 24, btnH + 16)];
     toolbar.tag = jj_adToolbarTag;
@@ -2434,8 +2442,8 @@ static void jj_addAdToolbar(WAWebViewController *vc) {
         [toolbar addSubview:btn];
     }
     
-    [vc.view addSubview:toolbar];
-    [vc.view bringSubviewToFront:toolbar];
+    [jj_adToolbarWindow addSubview:toolbar];
+    jj_adToolbarWindow.hidden = NO;
 }
 
 // 递归查找包含指定子串的Label
@@ -2469,13 +2477,13 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
     
     // 检测广告倒计时标签是否存在（"X 秒后可获得奖励"）
     UILabel *adLabel = jj_findLabelContaining(self.view, @"\u79d2\u540e\u53ef\u83b7\u5f97\u5956\u52b1");
-    if (adLabel && ![self.view viewWithTag:jj_adToolbarTag]) {
+    if (adLabel && !jj_adToolbarWindow) {
         jj_dbg([NSString stringWithFormat:@"[广告] 检测到倒计时: %@", adLabel.text]);
         jj_addAdToolbar(self);
     }
     
     // 广告自然完成时移除工具栏（"已获得奖励"）
-    if (!adLabel && [self.view viewWithTag:jj_adToolbarTag]) {
+    if (!adLabel && jj_adToolbarWindow) {
         UILabel *doneLabel = jj_findLabelWithText(self.view, @"\u5df2\u83b7\u5f97\u5956\u52b1");
         if (doneLabel) {
             jj_dbg(@"[广告] 已获得奖励，移除工具栏");
@@ -2558,9 +2566,7 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
                         NSStringFromClass([overlay class]), (unsigned long)overlay.subviews.count]);
                     
                     // dump overlay中所有子视图的类名和frame
-                    static BOOL jj_dumpedOverlay = NO;
-                    if (!jj_dumpedOverlay) {
-                        jj_dumpedOverlay = YES;
+                    {
                         for (UIView *sub in overlay.subviews) {
                             NSString *info = [NSString stringWithFormat:@"  class=%@ frame=%.0f,%.0f,%.0f,%.0f tag=%ld",
                                 NSStringFromClass([sub class]),

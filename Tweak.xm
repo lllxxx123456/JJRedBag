@@ -14,28 +14,141 @@
 static id jj_cachedPayLogicMgr = nil;
 
 // 临时悬浮窗调试（确认问题后删除）
+static UIView *jj_debugContainer = nil;
 static UITextView *jj_debugLogView = nil;
 static NSMutableString *jj_debugLog = nil;
+static BOOL jj_debugVisible = YES;
+
+static void jj_showDebugWindow(void);
 static void jj_dbg(NSString *msg) {
     if (!jj_debugLog) jj_debugLog = [NSMutableString string];
     NSDateFormatter *df = [[NSDateFormatter alloc] init];
     df.dateFormat = @"HH:mm:ss";
     [jj_debugLog appendFormat:@"[%@] %@\n", [df stringFromDate:[NSDate date]], msg];
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (!jj_debugLogView) {
-            jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(10, 80, 350, 200)];
-            jj_debugLogView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
-            jj_debugLogView.textColor = [UIColor greenColor];
-            jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:10];
-            jj_debugLogView.editable = NO;
-            jj_debugLogView.layer.cornerRadius = 8;
-            jj_debugLogView.layer.zPosition = 99999;
-            [[UIApplication sharedApplication].keyWindow addSubview:jj_debugLogView];
+        if (!jj_debugContainer && jj_debugVisible) jj_showDebugWindow();
+        if (jj_debugLogView) {
+            jj_debugLogView.text = jj_debugLog;
+            [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLog.length, 0)];
         }
-        jj_debugLogView.text = jj_debugLog;
-        [jj_debugLogView scrollRangeToVisible:NSMakeRange(jj_debugLog.length, 0)];
     });
 }
+
+static void jj_showDebugWindow(void) {
+    UIWindow *w = [UIApplication sharedApplication].keyWindow;
+    if (!w) return;
+    
+    CGFloat sw = w.bounds.size.width;
+    jj_debugContainer = [[UIView alloc] initWithFrame:CGRectMake(5, 70, sw - 10, 220)];
+    jj_debugContainer.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.8];
+    jj_debugContainer.layer.cornerRadius = 10;
+    jj_debugContainer.layer.zPosition = 99999;
+    jj_debugContainer.clipsToBounds = YES;
+    
+    // 标题栏
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, sw - 10, 32)];
+    titleBar.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.15];
+    [jj_debugContainer addSubview:titleBar];
+    
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 100, 32)];
+    title.text = @"Debug";
+    title.textColor = [UIColor greenColor];
+    title.font = [UIFont fontWithName:@"Menlo-Bold" size:13];
+    [titleBar addSubview:title];
+    
+    // 复制按钮
+    UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    copyBtn.frame = CGRectMake(sw - 140, 2, 50, 28);
+    [copyBtn setTitle:@"复制" forState:UIControlStateNormal];
+    [copyBtn setTitleColor:[UIColor cyanColor] forState:UIControlStateNormal];
+    copyBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [copyBtn addTarget:[JJDebugHelper shared] action:@selector(jj_copyDebugLog) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:copyBtn];
+    
+    // 关闭按钮
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(sw - 80, 2, 60, 28);
+    [closeBtn setTitle:@"关闭" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [closeBtn addTarget:[JJDebugHelper shared] action:@selector(jj_closeDebugWindow) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:closeBtn];
+    
+    // 清除按钮
+    UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    clearBtn.frame = CGRectMake(sw - 200, 2, 50, 28);
+    [clearBtn setTitle:@"清除" forState:UIControlStateNormal];
+    [clearBtn setTitleColor:[UIColor yellowColor] forState:UIControlStateNormal];
+    clearBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [clearBtn addTarget:[JJDebugHelper shared] action:@selector(jj_clearLog) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:clearBtn];
+    
+    // 日志区域
+    jj_debugLogView = [[UITextView alloc] initWithFrame:CGRectMake(0, 32, sw - 10, 188)];
+    jj_debugLogView.backgroundColor = [UIColor clearColor];
+    jj_debugLogView.textColor = [UIColor greenColor];
+    jj_debugLogView.font = [UIFont fontWithName:@"Menlo" size:10];
+    jj_debugLogView.editable = NO;
+    if (jj_debugLog) jj_debugLogView.text = jj_debugLog;
+    [jj_debugContainer addSubview:jj_debugLogView];
+    
+    // 拖拽手势
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[JJDebugHelper shared] action:@selector(jj_panDebugWindow:)];
+    [titleBar addGestureRecognizer:pan];
+    
+    [w addSubview:jj_debugContainer];
+    jj_debugVisible = YES;
+}
+
+// 调试窗口控制器
+static UIButton *jj_debugToggleBtn = nil;
+@interface JJDebugHelper : NSObject
++ (instancetype)shared;
+@end
+@implementation JJDebugHelper
++ (instancetype)shared {
+    static JJDebugHelper *inst;
+    static dispatch_once_t t;
+    dispatch_once(&t, ^{ inst = [[self alloc] init]; });
+    return inst;
+}
+- (void)jj_copyDebugLog {
+    [UIPasteboard generalPasteboard].string = jj_debugLog ?: @"";
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:nil message:@"日志已复制到剪贴板" preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
+}
+- (void)jj_closeDebugWindow {
+    [jj_debugContainer removeFromSuperview];
+    jj_debugContainer = nil; jj_debugLogView = nil; jj_debugVisible = NO;
+    // 显示小按钮用于重新打开
+    if (!jj_debugToggleBtn) {
+        jj_debugToggleBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        jj_debugToggleBtn.frame = CGRectMake(5, 70, 60, 28);
+        jj_debugToggleBtn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
+        [jj_debugToggleBtn setTitle:@"Debug" forState:UIControlStateNormal];
+        [jj_debugToggleBtn setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
+        jj_debugToggleBtn.titleLabel.font = [UIFont fontWithName:@"Menlo-Bold" size:11];
+        jj_debugToggleBtn.layer.cornerRadius = 6;
+        [jj_debugToggleBtn addTarget:self action:@selector(jj_reopenDebugWindow) forControlEvents:UIControlEventTouchUpInside];
+    }
+    [[UIApplication sharedApplication].keyWindow addSubview:jj_debugToggleBtn];
+}
+- (void)jj_reopenDebugWindow {
+    [jj_debugToggleBtn removeFromSuperview];
+    jj_debugVisible = YES;
+    jj_showDebugWindow();
+}
+- (void)jj_clearLog {
+    jj_debugLog = [NSMutableString string];
+    if (jj_debugLogView) jj_debugLogView.text = @"";
+}
+- (void)jj_panDebugWindow:(UIPanGestureRecognizer *)pan {
+    CGPoint t = [pan translationInView:jj_debugContainer.superview];
+    jj_debugContainer.center = CGPointMake(jj_debugContainer.center.x + t.x, jj_debugContainer.center.y + t.y);
+    [pan setTranslation:CGPointZero inView:jj_debugContainer.superview];
+}
+@end
 
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
@@ -489,6 +602,25 @@ static void jj_dbg(NSString *msg) {
     confirmParams[@"amount"] = amountStr;
     confirmParams[@"memo"] = memo;
     
+    // dump金额相关属性调试
+    static BOOL jj_dumpedFee = NO;
+    if (!jj_dumpedFee) {
+        jj_dumpedFee = YES;
+        @try {
+            unsigned int pcount = 0;
+            objc_property_t *props = class_copyPropertyList([payInfo class], &pcount);
+            for (unsigned int i = 0; i < pcount; i++) {
+                NSString *pname = [NSString stringWithUTF8String:property_getName(props[i])];
+                if ([[pname lowercaseString] containsString:@"fee"] || [[pname lowercaseString] containsString:@"amount"] || [[pname lowercaseString] containsString:@"money"]) {
+                    @try {
+                        id val = [payInfo valueForKey:pname];
+                        jj_dbg([NSString stringWithFormat:@"[金额] %@=%@", pname, val]);
+                    } @catch (NSException *e) {}
+                }
+            }
+            free(props);
+        } @catch (NSException *e) {}
+    }
     jj_dbg([NSString stringWithFormat:@"[收款] 检测到转账 金额=%@ from=%@", amountStr, fromUserCopy]);
     
     // 直接执行自动收款（不延迟）
@@ -530,36 +662,49 @@ static void jj_dbg(NSString *msg) {
         
         JJRedBagManager *mgr = [JJRedBagManager sharedManager];
         
-        // dump CMessageMgr中与发送相关的方法（仅首次）
-        static BOOL jj_dumpedMethods = NO;
-        if (!jj_dumpedMethods) {
-            jj_dumpedMethods = YES;
-            unsigned int mcount = 0;
-            Method *mlist = class_copyMethodList([self class], &mcount);
-            NSMutableArray *sendMethods = [NSMutableArray array];
-            for (unsigned int i = 0; i < mcount; i++) {
-                NSString *mname = NSStringFromSelector(method_getName(mlist[i]));
-                NSString *lower = [mname lowercaseString];
-                if ([lower containsString:@"send"] || [lower containsString:@"addmsg"] || 
-                    ([lower containsString:@"text"] && [lower containsString:@"msg"])) {
-                    [sendMethods addObject:mname];
-                }
-            }
-            free(mlist);
-            for (NSString *m in sendMethods) {
-                jj_dbg([NSString stringWithFormat:@"[方法] %@", m]);
-            }
+        // 自动回复（使用AddMsg:MsgWrap:发送文本消息）
+        BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
+        if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
+            jj_dbg([NSString stringWithFormat:@"[回复] 群聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
+            @try {
+                CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+                replyWrap.m_nsContent = mgr.receiveAutoReplyContent;
+                replyWrap.m_nsToUsr = fromUserCopy;
+                replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                [self AddMsg:fromUserCopy MsgWrap:replyWrap];
+                jj_dbg(@"[回复] ✅ 群聊回复已发送");
+            } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
+        } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
+            jj_dbg([NSString stringWithFormat:@"[回复] 私聊回复 to=%@ content=%@", fromUserCopy, mgr.receiveAutoReplyContent]);
+            @try {
+                CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+                replyWrap.m_nsContent = mgr.receiveAutoReplyContent;
+                replyWrap.m_nsToUsr = fromUserCopy;
+                replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                [self AddMsg:fromUserCopy MsgWrap:replyWrap];
+                jj_dbg(@"[回复] ✅ 私聊回复已发送");
+            } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[回复] ❌ 异常=%@", e.reason]); }
+        } else {
+            jj_dbg([NSString stringWithFormat:@"[回复] 跳过 isGroup=%d gReply=%d pReply=%d content=%@",
+                isGroupChat, mgr.receiveAutoReplyGroupEnabled, mgr.receiveAutoReplyPrivateEnabled,
+                mgr.receiveAutoReplyContent.length > 0 ? mgr.receiveAutoReplyContent : @"空"]);
         }
         
-        // 自动回复（暂时跳过，等确认正确方法名）
-        BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
-        jj_dbg([NSString stringWithFormat:@"[回复] isGroup=%d groupReply=%d privateReply=%d content=%@",
-            isGroupChat, mgr.receiveAutoReplyGroupEnabled, mgr.receiveAutoReplyPrivateEnabled,
-            mgr.receiveAutoReplyContent.length > 0 ? mgr.receiveAutoReplyContent : @"空"]);
-        
-        // 通知
+        // 发送通知（使用AddMsg:MsgWrap:）
         if (mgr.receiveNotificationEnabled && mgr.receiveNotificationChatId.length > 0) {
+            double amountYuan = amountValue / 100.0;
+            NSMutableString *notifyMsg = [NSMutableString string];
+            [notifyMsg appendFormat:@"收到一笔转账：\n金额：%.2f元", amountYuan];
+            if (memo.length > 0) [notifyMsg appendFormat:@"\n备注：%@", memo];
             jj_dbg([NSString stringWithFormat:@"[通知] to=%@", mgr.receiveNotificationChatId]);
+            @try {
+                CMessageWrap *notifyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+                notifyWrap.m_nsContent = notifyMsg;
+                notifyWrap.m_nsToUsr = mgr.receiveNotificationChatId;
+                notifyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                [self AddMsg:mgr.receiveNotificationChatId MsgWrap:notifyWrap];
+                jj_dbg(@"[通知] ✅ 通知已发送");
+            } @catch (NSException *e) { jj_dbg([NSString stringWithFormat:@"[通知] ❌ 异常=%@", e.reason]); }
         }
         
         // 本地弹窗通知
@@ -581,7 +726,13 @@ static void jj_dbg(NSString *msg) {
     NSString *toUser = params[@"fromUser"];
     if (!toUser) return;
     
-    @try { [self SendTextMessage:content toUsr:toUser]; } @catch (NSException *e) {}
+    @try {
+        CMessageWrap *wrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+        wrap.m_nsContent = content;
+        wrap.m_nsToUsr = toUser;
+        wrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        [self AddMsg:toUser MsgWrap:wrap];
+    } @catch (NSException *e) {}
 }
 
 %new
@@ -593,13 +744,19 @@ static void jj_dbg(NSString *msg) {
     NSString *memo = params[@"memo"] ?: @"";
     
     NSMutableString *msg = [NSMutableString string];
-    [msg appendString:@"收到一笔转账：\n"];
-    [msg appendFormat:@"金额：%.2f元\n", amountYuan];
+    [msg appendString:@"\u6536\u5230\u4e00\u7b14\u8f6c\u8d26\uff1a\n"];
+    [msg appendFormat:@"\u91d1\u989d\uff1a%.2f\u5143\n", amountYuan];
     if (memo.length > 0) {
-        [msg appendFormat:@"备注：%@", memo];
+        [msg appendFormat:@"\u5907\u6ce8\uff1a%@", memo];
     }
     
-    @try { [self SendTextMessage:msg toUsr:manager.receiveNotificationChatId]; } @catch (NSException *e) {}
+    @try {
+        CMessageWrap *wrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+        wrap.m_nsContent = msg;
+        wrap.m_nsToUsr = manager.receiveNotificationChatId;
+        wrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        [self AddMsg:manager.receiveNotificationChatId MsgWrap:wrap];
+    } @catch (NSException *e) {}
 }
 
 %new

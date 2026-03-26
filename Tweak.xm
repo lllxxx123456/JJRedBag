@@ -2292,7 +2292,26 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         }
         
         id serviceCenter = jj_getServiceCenter();
-        jj_dbgAppend(@"[+1] serviceCenter=%@", serviceCenter ? NSStringFromClass([serviceCenter class]) : @"nil");
+        if (!serviceCenter) {
+            // 运行时探索：枚举所有可能的服务中心类
+            NSArray *candidateNames = @[@"MMServiceCenter", @"WXServiceCenter", @"MMContext", @"WCContext", @"MicroMessengerAppDelegate"];
+            for (NSString *name in candidateNames) {
+                Class c = objc_getClass([name UTF8String]);
+                jj_dbgAppend(@"[探索] class %@ = %@", name, c ? @"EXISTS" : @"nil");
+                if (!c) continue;
+                unsigned int mc = 0;
+                Method *ml = class_copyMethodList(object_getClass(c), &mc);
+                NSMutableArray *names = [NSMutableArray array];
+                for (unsigned int j = 0; j < mc; j++) {
+                    [names addObject:NSStringFromSelector(method_getName(ml[j]))];
+                }
+                if (ml) free(ml);
+                jj_dbgAppend(@"[探索] %@ classMethods(%u): %@", name, mc, [names componentsJoinedByString:@", "]);
+            }
+            [self jj_showPlusOneUnsupported:@"服务中心获取失败，请查看调试窗口"];
+            return;
+        }
+        jj_dbgAppend(@"[+1] serviceCenter=%@", NSStringFromClass([serviceCenter class]));
         
         CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
         CContact *selfContact = [contactMgr getSelfContact];

@@ -13,6 +13,14 @@
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
 static id jj_cachedPayLogicMgr = nil;
 
+static unsigned int jj_generateSendMsgTime(void) {
+    MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
+    if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
+        return [sessionMgr GenSendMsgTime];
+    }
+    return (unsigned int)[[NSDate date] timeIntervalSince1970];
+}
+
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
 + (instancetype)sharedInstance;
@@ -567,7 +575,7 @@ static id jj_cachedPayLogicMgr = nil;
         wrap.m_nsToUsr = toUser;
         wrap.m_nsFromUsr = params[@"selfUser"];
         wrap.m_uiStatus = 1;
-        wrap.m_uiCreateTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+        wrap.m_uiCreateTime = jj_generateSendMsgTime();
         wrap.m_uiMesLocalID = wrap.m_uiCreateTime;
         [self AddMsg:toUser MsgWrap:wrap];
     } @catch (NSException *e) {}
@@ -594,7 +602,7 @@ static id jj_cachedPayLogicMgr = nil;
         wrap.m_nsToUsr = manager.receiveNotificationChatId;
         wrap.m_nsFromUsr = params[@"selfUser"];
         wrap.m_uiStatus = 1;
-        wrap.m_uiCreateTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+        wrap.m_uiCreateTime = jj_generateSendMsgTime();
         wrap.m_uiMesLocalID = wrap.m_uiCreateTime;
         [self AddMsg:manager.receiveNotificationChatId MsgWrap:wrap];
     } @catch (NSException *e) {}
@@ -1167,7 +1175,7 @@ static void jj_stopAllBackgroundModes(void) {
     msgWrap.m_uiMessageType = 1;
     
     // 使用统一的发送时间生成函数
-    msgWrap.m_uiCreateTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+    msgWrap.m_uiCreateTime = jj_generateSendMsgTime();
     
     msgWrap.m_uiMesLocalID = (unsigned int)msgWrap.m_uiCreateTime;
     
@@ -2146,7 +2154,7 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     }
     if (properties) free(properties);
     
-    unsigned int sendTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+    unsigned int sendTime = jj_generateSendMsgTime();
     newWrap.m_nsFromUsr = fromUser;
     newWrap.m_nsToUsr = toUser;
     newWrap.m_nsRealChatUsr = nil;

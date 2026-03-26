@@ -2407,64 +2407,73 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         jj_dbgAppend(@"[+1] media type=%u", msgType);
         
         typedef void (*JJMsgSend2)(id, SEL, id, id);
-        CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
-        if (!newWrap) {
-            [self jj_showPlusOneUnsupported:@"克隆消息失败"];
-            return;
-        }
-        
         BOOL sent = NO;
         
-        // 视频消息(type=43): 用ResendVideoMsg:MsgWrap:
-        if (msgType == 43) {
-            SEL sel = NSSelectorFromString(@"ResendVideoMsg:MsgWrap:");
-            if ([msgMgr respondsToSelector:sel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] use ResendVideoMsg");
-                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, newWrap);
-                    sent = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] ResendVideoMsg ex=%@", e.reason);
+        // 视频(43)和语音(34): 直接用原始消息，临时修改发送方向
+        // 原因：Resend/AddRecord依赖原始m_uiMesLocalID定位本地缓存文件
+        if (msgType == 43 || msgType == 34) {
+            NSString *origFrom = msgWrap.m_nsFromUsr;
+            unsigned int origStatus = msgWrap.m_uiStatus;
+            long long origSvrID = msgWrap.m_n64MesSvrID;
+            
+            msgWrap.m_nsFromUsr = selfUserName;
+            msgWrap.m_nsToUsr = chatUserName;
+            msgWrap.m_uiStatus = 1;
+            msgWrap.m_n64MesSvrID = 0;
+            
+            if (msgType == 43) {
+                SEL sel = NSSelectorFromString(@"ResendVideoMsg:MsgWrap:");
+                if ([msgMgr respondsToSelector:sel]) {
+                    @try {
+                        jj_dbgAppend(@"[+1] use ResendVideoMsg (original wrap)");
+                        ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, msgWrap);
+                        sent = YES;
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] ResendVideoMsg ex=%@", e.reason);
+                    }
+                }
+            } else {
+                SEL sel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
+                if ([msgMgr respondsToSelector:sel]) {
+                    @try {
+                        jj_dbgAppend(@"[+1] use AddRecordMsg (original wrap)");
+                        ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, msgWrap);
+                        sent = YES;
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] AddRecordMsg ex=%@", e.reason);
+                    }
                 }
             }
+            
+            // 恢复原始消息属性，避免影响聊天记录显示
+            msgWrap.m_nsFromUsr = origFrom;
+            msgWrap.m_uiStatus = origStatus;
+            msgWrap.m_n64MesSvrID = origSvrID;
         }
         
-        // 语音消息(type=34): 用AddRecordMsg:MsgWrap:
-        if (!sent && msgType == 34) {
-            SEL sel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
-            if ([msgMgr respondsToSelector:sel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] use AddRecordMsg");
-                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, newWrap);
-                    sent = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] AddRecordMsg ex=%@", e.reason);
-                }
-            }
-        }
-        
-        // 图片/文件/其他: 用ResendMsg:MsgWrap:
+        // 图片/文件/其他: 用克隆+ResendMsg（已验证可用）
         if (!sent) {
-            SEL sel = NSSelectorFromString(@"ResendMsg:MsgWrap:");
-            if ([msgMgr respondsToSelector:sel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] use ResendMsg type=%u", msgType);
-                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, newWrap);
-                    sent = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] ResendMsg ex=%@", e.reason);
+            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+            if (newWrap) {
+                SEL sel = NSSelectorFromString(@"ResendMsg:MsgWrap:");
+                if ([msgMgr respondsToSelector:sel]) {
+                    @try {
+                        jj_dbgAppend(@"[+1] use ResendMsg type=%u", msgType);
+                        ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, newWrap);
+                        sent = YES;
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] ResendMsg ex=%@", e.reason);
+                    }
                 }
-            }
-        }
-        
-        // 最终回退: AddMsg
-        if (!sent) {
-            @try {
-                jj_dbgAppend(@"[+1] fallback AddMsg type=%u", msgType);
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                sent = YES;
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
+                if (!sent) {
+                    @try {
+                        jj_dbgAppend(@"[+1] fallback AddMsg type=%u", msgType);
+                        [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                        sent = YES;
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
+                    }
+                }
             }
         }
         

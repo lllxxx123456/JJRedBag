@@ -2201,16 +2201,6 @@ static void jj_dbgAppend(NSString *format, ...) {
     });
 }
 
-static BOOL jj_plusOneHasPayload(CMessageWrap *msgWrap) {
-    if (!msgWrap) return NO;
-    if (msgWrap.m_nsContent.length > 0) return YES;
-    if (msgWrap.m_nsImgPath.length > 0) return YES;
-    if (msgWrap.m_nsThumbImgPath.length > 0) return YES;
-    if (msgWrap.m_dtEmoticonData.length > 0) return YES;
-    if (msgWrap.m_nsEmoticonMD5.length > 0) return YES;
-    return NO;
-}
-
 static NSString *jj_plusOneUnsupportedReason(CMessageWrap *msgWrap) {
     if (!msgWrap) return @"不支持该消息类型";
     unsigned int msgType = msgWrap.m_uiMessageType;

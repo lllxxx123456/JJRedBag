@@ -114,9 +114,7 @@
 - (void)OnAddMessageByReceiver:(id)arg1;
 - (void)onNewSyncAddMessage:(id)arg1;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;
-- (void)MessageRetransmitToChat:(NSString *)chatUserName MsgList:(NSArray *)msgList;
-- (void)MessageRetransmit:(NSString *)chatUserName MsgWrap:(CMessageWrap *)msgWrap;
-- (void)ForwardMessage:(CMessageWrap *)msgWrap toContacts:(NSArray *)contacts;
+- (void)batchForwardMessage:(id)msgList toUserArray:(id)userArray;
 // JJRedBag插件方法
 - (void)jj_handleReceivedMessage:(CMessageWrap *)msgWrap;
 - (void)jj_processRedBagMessage:(CMessageWrap *)msgWrap;

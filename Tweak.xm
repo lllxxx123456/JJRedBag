@@ -2261,7 +2261,7 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     if (MMMenuItemClass) {
         @try {
-            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
+            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jj_onPlusOne)];
         } @catch (NSException *e) {}
         if (!plusOneItem) {
             @try {
@@ -2403,73 +2403,14 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 图片/视频/文件/语音等：通过聊天VC的AsyncSendMessage转发 ===
-        typedef void (*JJSend4)(id, SEL, id, id, id, BOOL);
-        BOOL forwarded = NO;
-        
-        // 克隆消息体
-        CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
-        if (!newWrap) {
-            jj_dbgAppend(@"[+1] clone failed for type=%u", msgType);
-            [self jj_showPlusOneUnsupported:@"消息克隆失败"];
-            return;
-        }
-        
-        // 方式1: 通过聊天VC的AsyncSendMessage发送（最可靠）
-        UIResponder *responder = self;
-        id chatVC = nil;
-        while (responder) {
-            NSString *cn = NSStringFromClass([responder class]);
-            if ([cn containsString:@"MsgContent"] || [cn containsString:@"BaseMsgContent"]) {
-                chatVC = responder;
-                break;
-            }
-            responder = [responder nextResponder];
-        }
-        
-        if (chatVC) {
-            SEL asyncSendSel = NSSelectorFromString(@"AsyncSendMessage:replyingMsg:referPartialInfo:isPasted:");
-            if ([chatVC respondsToSelector:asyncSendSel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] try AsyncSendMessage on %@", NSStringFromClass([chatVC class]));
-                    ((JJSend4)objc_msgSend)(chatVC, asyncSendSel, newWrap, nil, nil, NO);
-                    forwarded = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] AsyncSendMessage exception=%@", e.reason);
-                }
-            }
-            
-            // 方式1b: AsyncSendMessage: (单参数版本)
-            if (!forwarded) {
-                SEL addMsgSel = NSSelectorFromString(@"AsyncSendMessage:");
-                if ([chatVC respondsToSelector:addMsgSel]) {
-                    @try {
-                        jj_dbgAppend(@"[+1] try AsyncSendMessage: (1 arg)");
-                        ((void (*)(id, SEL, id))objc_msgSend)(chatVC, addMsgSel, newWrap);
-                        forwarded = YES;
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] AsyncSendMessage 1arg exception=%@", e.reason);
-                    }
-                }
-            }
-        } else {
-            jj_dbgAppend(@"[+1] chatVC not found in responder chain");
-        }
-        
-        // 方式2: CMessageMgr的AddMsg（回退方案，可能只对部分类型有效）
-        if (!forwarded) {
-            @try {
-                jj_dbgAppend(@"[+1] fallback AddMsg for type=%u", msgType);
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                forwarded = YES;
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] AddMsg fallback exception=%@", e.reason);
-            }
-        }
-        
-        if (!forwarded) {
-            jj_dbgAppend(@"[+1] all methods failed for type=%u", msgType);
-            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
+        // === 图片/视频/文件/语音等：使用batchForwardMessage转发原始消息 ===
+        jj_dbgAppend(@"[+1] media type=%u, use batchForwardMessage", msgType);
+        @try {
+            [msgMgr batchForwardMessage:@[msgWrap] toUserArray:@[chatUserName]];
+            jj_dbgAppend(@"[+1] batchForwardMessage OK for type=%u", msgType);
+        } @catch (NSException *e) {
+            jj_dbgAppend(@"[+1] batchForwardMessage exception=%@", e.reason);
+            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"转发失败：%@", e.reason ?: @"未知错误"]];
         }
     } @catch (NSException *exception) {
         jj_dbgAppend(@"[+1] outer exception=%@", exception.reason ?: @"<nil>");
@@ -2518,7 +2459,7 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             id plusOneItem = nil;
             if (MMMenuItemClass) {
                 @try {
-                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
+                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jj_onPlusOne)];
                 } @catch (NSException *e) {}
                 if (!plusOneItem) {
                     @try {

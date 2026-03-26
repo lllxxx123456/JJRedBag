@@ -18,51 +18,82 @@ static id jj_cachedServiceCenter = nil;
 static id jj_getServiceCenter(void) {
     if (jj_cachedServiceCenter) return jj_cachedServiceCenter;
     
-    Class cls = objc_getClass("MMServiceCenter");
-    if (!cls) cls = objc_getClass("WXServiceCenter");
-    if (!cls) return nil;
-    
-    // 用objc_msgSend避免performSelector的ARC警告
     typedef id (*JJMsgSend)(id, SEL);
     JJMsgSend msgSend = (JJMsgSend)objc_msgSend;
     
-    // 尝试多种单例方法名
-    SEL selectors[] = {
-        @selector(defaultCenter),
-        @selector(sharedInstance),
-        @selector(sharedCenter),
-        @selector(center),
-        @selector(shared)
-    };
-    for (int i = 0; i < sizeof(selectors)/sizeof(selectors[0]); i++) {
-        if ([cls respondsToSelector:selectors[i]]) {
-            @try {
-                id center = msgSend((id)cls, selectors[i]);
-                if (center) {
-                    jj_cachedServiceCenter = center;
-                    return center;
-                }
-            } @catch (NSException *e) {}
-        }
+    // 策略1：新版微信通过 MMContext.currentContext 获取（它可能就持有 getService:）
+    Class mmContextCls = objc_getClass("MMContext");
+    if (mmContextCls && [mmContextCls respondsToSelector:@selector(currentContext)]) {
+        @try {
+            id ctx = msgSend((id)mmContextCls, @selector(currentContext));
+            if (ctx && [ctx respondsToSelector:@selector(getService:)]) {
+                jj_cachedServiceCenter = ctx;
+                return ctx;
+            }
+        } @catch (NSException *e) {}
     }
     
-    // 最终回退：运行时遍历类方法，找返回instancetype的无参方法
-    unsigned int methodCount = 0;
-    Method *methods = class_copyMethodList(object_getClass(cls), &methodCount);
-    for (unsigned int i = 0; i < methodCount; i++) {
-        SEL sel = method_getName(methods[i]);
-        if (method_getNumberOfArguments(methods[i]) == 2) {
-            @try {
-                id result = msgSend((id)cls, sel);
-                if (result && [result isKindOfClass:cls]) {
-                    jj_cachedServiceCenter = result;
-                    free(methods);
-                    return result;
-                }
-            } @catch (NSException *e) {}
+    // 策略2：经典方式 MMServiceCenter.defaultCenter
+    Class cls = objc_getClass("MMServiceCenter");
+    if (!cls) cls = objc_getClass("WXServiceCenter");
+    if (cls) {
+        SEL selectors[] = {
+            @selector(defaultCenter),
+            @selector(sharedInstance),
+            @selector(sharedCenter),
+            @selector(center),
+            @selector(shared)
+        };
+        for (int i = 0; i < sizeof(selectors)/sizeof(selectors[0]); i++) {
+            if ([cls respondsToSelector:selectors[i]]) {
+                @try {
+                    id center = msgSend((id)cls, selectors[i]);
+                    if (center && [center respondsToSelector:@selector(getService:)]) {
+                        jj_cachedServiceCenter = center;
+                        return center;
+                    }
+                } @catch (NSException *e) {}
+            }
+        }
+        
+        // 回退：运行时遍历类方法
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(object_getClass(cls), &methodCount);
+        for (unsigned int i = 0; i < methodCount; i++) {
+            SEL sel = method_getName(methods[i]);
+            if (method_getNumberOfArguments(methods[i]) == 2) {
+                @try {
+                    id result = msgSend((id)cls, sel);
+                    if (result && [result respondsToSelector:@selector(getService:)]) {
+                        jj_cachedServiceCenter = result;
+                        free(methods);
+                        return result;
+                    }
+                } @catch (NSException *e) {}
+            }
+        }
+        if (methods) free(methods);
+    }
+    
+    // 策略3：遍历MMContext的其他上下文方法
+    if (mmContextCls) {
+        SEL ctxSels[] = {
+            @selector(activeUserContext),
+            @selector(lastContext),
+            @selector(rootContext)
+        };
+        for (int i = 0; i < sizeof(ctxSels)/sizeof(ctxSels[0]); i++) {
+            if ([mmContextCls respondsToSelector:ctxSels[i]]) {
+                @try {
+                    id ctx = msgSend((id)mmContextCls, ctxSels[i]);
+                    if (ctx && [ctx respondsToSelector:@selector(getService:)]) {
+                        jj_cachedServiceCenter = ctx;
+                        return ctx;
+                    }
+                } @catch (NSException *e) {}
+            }
         }
     }
-    if (methods) free(methods);
     
     return nil;
 }
@@ -1999,7 +2030,7 @@ static void jj_showScaleActionSheet(void) {
         [header addSubview:titleLabel];
         
         UIButton *minButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        minButton.frame = CGRectMake(width - 170, 7, 50, 30);
+        minButton.frame = CGRectMake(width - 226, 7, 50, 30);
         [minButton setTitle:@"最小化" forState:UIControlStateNormal];
         [minButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         minButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
@@ -2007,6 +2038,16 @@ static void jj_showScaleActionSheet(void) {
         minButton.layer.cornerRadius = 8;
         [minButton addTarget:self action:@selector(toggleMinimize) forControlEvents:UIControlEventTouchUpInside];
         [header addSubview:minButton];
+        
+        UIButton *clearButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        clearButton.frame = CGRectMake(width - 170, 7, 50, 30);
+        [clearButton setTitle:@"清除" forState:UIControlStateNormal];
+        [clearButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        clearButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        clearButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+        clearButton.layer.cornerRadius = 8;
+        [clearButton addTarget:self action:@selector(clearContent) forControlEvents:UIControlEventTouchUpInside];
+        [header addSubview:clearButton];
         
         UIButton *copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
         copyButton.frame = CGRectMake(width - 114, 7, 50, 30);
@@ -2088,6 +2129,10 @@ static void jj_showScaleActionSheet(void) {
         text = [text substringFromIndex:text.length - 2000];
     }
     [UIPasteboard generalPasteboard].string = text;
+}
+
+- (void)clearContent {
+    self.textView.text = @"";
 }
 
 - (void)closeWindow {
@@ -2293,20 +2338,40 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         
         id serviceCenter = jj_getServiceCenter();
         if (!serviceCenter) {
-            // 运行时探索：枚举所有可能的服务中心类
-            NSArray *candidateNames = @[@"MMServiceCenter", @"WXServiceCenter", @"MMContext", @"WCContext", @"MicroMessengerAppDelegate"];
-            for (NSString *name in candidateNames) {
-                Class c = objc_getClass([name UTF8String]);
-                jj_dbgAppend(@"[探索] class %@ = %@", name, c ? @"EXISTS" : @"nil");
-                if (!c) continue;
+            typedef id (*JJMsgSend)(id, SEL);
+            JJMsgSend msgSend = (JJMsgSend)objc_msgSend;
+            // 探索MMContext实例方法
+            Class mmCtx = objc_getClass("MMContext");
+            if (mmCtx && [mmCtx respondsToSelector:@selector(currentContext)]) {
+                id ctx = msgSend((id)mmCtx, @selector(currentContext));
+                jj_dbgAppend(@"[探索] MMContext.currentContext = %@", ctx ? NSStringFromClass([ctx class]) : @"nil");
+                if (ctx) {
+                    jj_dbgAppend(@"[探索] hasGetService: %@", [ctx respondsToSelector:@selector(getService:)] ? @"YES" : @"NO");
+                    // 枚举实例方法中包含service/Service的
+                    unsigned int mc = 0;
+                    Method *ml = class_copyMethodList([ctx class], &mc);
+                    NSMutableArray *serviceMethods = [NSMutableArray array];
+                    for (unsigned int j = 0; j < mc; j++) {
+                        NSString *n = NSStringFromSelector(method_getName(ml[j]));
+                        if ([[n lowercaseString] containsString:@"service"]) {
+                            [serviceMethods addObject:n];
+                        }
+                    }
+                    if (ml) free(ml);
+                    jj_dbgAppend(@"[探索] MMContext *service* methods: %@", [serviceMethods componentsJoinedByString:@", "]);
+                }
+            }
+            // 探索MMServiceCenter实例方法
+            Class mmsc = objc_getClass("MMServiceCenter");
+            if (mmsc) {
                 unsigned int mc = 0;
-                Method *ml = class_copyMethodList(object_getClass(c), &mc);
+                Method *ml = class_copyMethodList(mmsc, &mc);
                 NSMutableArray *names = [NSMutableArray array];
                 for (unsigned int j = 0; j < mc; j++) {
                     [names addObject:NSStringFromSelector(method_getName(ml[j]))];
                 }
                 if (ml) free(ml);
-                jj_dbgAppend(@"[探索] %@ classMethods(%u): %@", name, mc, [names componentsJoinedByString:@", "]);
+                jj_dbgAppend(@"[探索] MMServiceCenter instanceMethods(%u): %@", mc, [names componentsJoinedByString:@", "]);
             }
             [self jj_showPlusOneUnsupported:@"服务中心获取失败，请查看调试窗口"];
             return;

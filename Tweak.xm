@@ -534,46 +534,13 @@ static id jj_cachedPayLogicMgr = nil;
         
         // 自动回复（使用AddMsg:MsgWrap:发送文本消息）
         BOOL isGroupChat = [confirmParams[@"isGroup"] boolValue];
-        if (isGroupChat && mgr.receiveAutoReplyGroupEnabled && mgr.receiveAutoReplyContent.length > 0) {
-            @try {
-                NSString *selfUsr = confirmParams[@"selfUser"];
-                CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
-                replyWrap.m_nsContent = mgr.receiveAutoReplyContent;
-                replyWrap.m_nsToUsr = fromUserCopy;
-                replyWrap.m_nsFromUsr = selfUsr;
-                replyWrap.m_uiStatus = 1;
-                replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                [self AddMsg:fromUserCopy MsgWrap:replyWrap];
-            } @catch (NSException *e) {}
-        } else if (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled && mgr.receiveAutoReplyContent.length > 0) {
-            @try {
-                NSString *selfUsr = confirmParams[@"selfUser"];
-                CMessageWrap *replyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
-                replyWrap.m_nsContent = mgr.receiveAutoReplyContent;
-                replyWrap.m_nsToUsr = fromUserCopy;
-                replyWrap.m_nsFromUsr = selfUsr;
-                replyWrap.m_uiStatus = 1;
-                replyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                [self AddMsg:fromUserCopy MsgWrap:replyWrap];
-            } @catch (NSException *e) {}
+        if ((isGroupChat && mgr.receiveAutoReplyGroupEnabled) || (!isGroupChat && mgr.receiveAutoReplyPrivateEnabled)) {
+            [self jj_sendReceiveAutoReply:confirmParams isGroup:isGroupChat];
         }
         
         // 发送通知（使用AddMsg:MsgWrap:）
         if (mgr.receiveNotificationEnabled && mgr.receiveNotificationChatId.length > 0) {
-            double amountYuan = amountValue / 100.0;
-            NSMutableString *notifyMsg = [NSMutableString string];
-            [notifyMsg appendFormat:@"收到一笔转账：\n金额：%.2f元", amountYuan];
-            if (memo.length > 0) [notifyMsg appendFormat:@"\n备注：%@", memo];
-            @try {
-                NSString *selfUsr = confirmParams[@"selfUser"];
-                CMessageWrap *notifyWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
-                notifyWrap.m_nsContent = notifyMsg;
-                notifyWrap.m_nsToUsr = mgr.receiveNotificationChatId;
-                notifyWrap.m_nsFromUsr = selfUsr;
-                notifyWrap.m_uiStatus = 1;
-                notifyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                [self AddMsg:mgr.receiveNotificationChatId MsgWrap:notifyWrap];
-            } @catch (NSException *e) {}
+            [self jj_sendReceiveNotification:confirmParams amount:amountValue];
         }
         
         // 本地弹窗通知
@@ -598,7 +565,10 @@ static id jj_cachedPayLogicMgr = nil;
         CMessageWrap *wrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
         wrap.m_nsContent = content;
         wrap.m_nsToUsr = toUser;
-        wrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        wrap.m_nsFromUsr = params[@"selfUser"];
+        wrap.m_uiStatus = 1;
+        wrap.m_uiCreateTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+        wrap.m_uiMesLocalID = wrap.m_uiCreateTime;
         [self AddMsg:toUser MsgWrap:wrap];
     } @catch (NSException *e) {}
 }
@@ -622,7 +592,10 @@ static id jj_cachedPayLogicMgr = nil;
         CMessageWrap *wrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
         wrap.m_nsContent = msg;
         wrap.m_nsToUsr = manager.receiveNotificationChatId;
-        wrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        wrap.m_nsFromUsr = params[@"selfUser"];
+        wrap.m_uiStatus = 1;
+        wrap.m_uiCreateTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+        wrap.m_uiMesLocalID = wrap.m_uiCreateTime;
         [self AddMsg:manager.receiveNotificationChatId MsgWrap:wrap];
     } @catch (NSException *e) {}
 }
@@ -1168,6 +1141,15 @@ static void jj_stopAllBackgroundModes(void) {
 }
 
 %new
++ (unsigned int)jj_generateSendMsgTime {
+    MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
+    if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
+        return [sessionMgr GenSendMsgTime];
+    }
+    return (unsigned int)[[NSDate date] timeIntervalSince1970];
+}
+
+%new
 - (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser {
     if (!content || !toUser) return;
     
@@ -1184,19 +1166,15 @@ static void jj_stopAllBackgroundModes(void) {
     msgWrap.m_uiStatus = 1; // 1=Sending
     msgWrap.m_uiMessageType = 1;
     
-    // 使用MMNewSessionMgr生成时间戳
-    MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
-    if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
-        msgWrap.m_uiCreateTime = [sessionMgr GenSendMsgTime];
-    } else {
-        msgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-    }
+    // 使用统一的发送时间生成函数
+    msgWrap.m_uiCreateTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
     
     msgWrap.m_uiMesLocalID = (unsigned int)msgWrap.m_uiCreateTime;
     
     CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
     [msgMgr AddMsg:toUser MsgWrap:msgWrap];
 }
+
 %end
 
 #pragma mark - Notification Jump Hook
@@ -1903,6 +1881,282 @@ static void jj_showScaleActionSheet(void) {
     });
 }
 
+@interface JJDebugLogWindow : UIWindow
+@property (nonatomic, strong) UIView *panel;
+@property (nonatomic, strong) UITextView *textView;
+@property (nonatomic, strong) UIButton *restoreButton;
+@property (nonatomic, assign) BOOL jj_minimized;
+- (void)appendLine:(NSString *)line;
+@end
+
+@implementation JJDebugLogWindow
+
+- (instancetype)init {
+    self = [super initWithFrame:[UIScreen mainScreen].bounds];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.windowLevel = UIWindowLevelAlert + 1;
+        self.hidden = NO;
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    self.windowScene = (UIWindowScene *)scene;
+                    break;
+                }
+            }
+        }
+        
+        CGFloat width = MIN(self.bounds.size.width - 24, 360);
+        self.panel = [[UIView alloc] initWithFrame:CGRectMake(12, 96, width, 260)];
+        self.panel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.88];
+        self.panel.layer.cornerRadius = 12;
+        self.panel.clipsToBounds = YES;
+        [self addSubview:self.panel];
+        
+        UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 44)];
+        header.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.08];
+        [self.panel addSubview:header];
+        
+        UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, 120, 44)];
+        titleLabel.text = @"运行时调试";
+        titleLabel.font = [UIFont boldSystemFontOfSize:15];
+        titleLabel.textColor = [UIColor whiteColor];
+        [header addSubview:titleLabel];
+        
+        UIButton *minButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        minButton.frame = CGRectMake(width - 170, 7, 50, 30);
+        [minButton setTitle:@"最小化" forState:UIControlStateNormal];
+        [minButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        minButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        minButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+        minButton.layer.cornerRadius = 8;
+        [minButton addTarget:self action:@selector(toggleMinimize) forControlEvents:UIControlEventTouchUpInside];
+        [header addSubview:minButton];
+        
+        UIButton *copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        copyButton.frame = CGRectMake(width - 114, 7, 50, 30);
+        [copyButton setTitle:@"复制" forState:UIControlStateNormal];
+        [copyButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        copyButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        copyButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+        copyButton.layer.cornerRadius = 8;
+        [copyButton addTarget:self action:@selector(copyContent) forControlEvents:UIControlEventTouchUpInside];
+        [header addSubview:copyButton];
+        
+        UIButton *closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        closeButton.frame = CGRectMake(width - 58, 7, 50, 30);
+        [closeButton setTitle:@"关闭" forState:UIControlStateNormal];
+        [closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        closeButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        closeButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+        closeButton.layer.cornerRadius = 8;
+        [closeButton addTarget:self action:@selector(closeWindow) forControlEvents:UIControlEventTouchUpInside];
+        [header addSubview:closeButton];
+        
+        self.textView = [[UITextView alloc] initWithFrame:CGRectMake(8, 52, width - 16, 200)];
+        self.textView.backgroundColor = [UIColor clearColor];
+        self.textView.textColor = [UIColor colorWithWhite:0.95 alpha:1.0];
+        UIFont *monoFont = nil;
+        if (@available(iOS 13.0, *)) {
+            monoFont = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+        }
+        self.textView.font = monoFont ?: [UIFont fontWithName:@"Menlo-Regular" size:12] ?: [UIFont systemFontOfSize:12];
+        self.textView.editable = NO;
+        self.textView.selectable = YES;
+        [self.panel addSubview:self.textView];
+        
+        self.restoreButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        self.restoreButton.frame = CGRectMake(16, 96, 64, 34);
+        self.restoreButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.82];
+        self.restoreButton.layer.cornerRadius = 10;
+        [self.restoreButton setTitle:@"调试" forState:UIControlStateNormal];
+        [self.restoreButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        self.restoreButton.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightBold];
+        self.restoreButton.hidden = YES;
+        [self.restoreButton addTarget:self action:@selector(toggleMinimize) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.restoreButton];
+        
+        UIPanGestureRecognizer *panelPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        [self.panel addGestureRecognizer:panelPan];
+        UIPanGestureRecognizer *restorePan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        [self.restoreButton addGestureRecognizer:restorePan];
+    }
+    return self;
+}
+
+- (void)appendLine:(NSString *)line {
+    if (!line || line.length == 0) return;
+    NSString *text = self.textView.text ?: @"";
+    self.textView.text = (text.length > 0) ? [text stringByAppendingFormat:@"\n%@", line] : line;
+    NSRange range = NSMakeRange(self.textView.text.length, 0);
+    [self.textView scrollRangeToVisible:range];
+    self.hidden = NO;
+}
+
+- (void)toggleMinimize {
+    self.jj_minimized = !self.jj_minimized;
+    self.panel.hidden = self.jj_minimized;
+    self.restoreButton.hidden = !self.jj_minimized;
+}
+
+- (void)copyContent {
+    [UIPasteboard generalPasteboard].string = self.textView.text ?: @"";
+}
+
+- (void)closeWindow {
+    self.hidden = YES;
+    self.panel.hidden = NO;
+    self.restoreButton.hidden = YES;
+    self.jj_minimized = NO;
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    UIView *target = gesture.view;
+    CGPoint translation = [gesture translationInView:self];
+    target.center = CGPointMake(target.center.x + translation.x, target.center.y + translation.y);
+    [gesture setTranslation:CGPointZero inView:self];
+}
+
+@end
+
+static JJDebugLogWindow *jj_debugWindow = nil;
+static NSMutableSet *jj_debugDumpedMethodKeys = nil;
+
+static NSString *jj_dbgTimeString(void) {
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"HH:mm:ss"];
+    return [formatter stringFromDate:[NSDate date]];
+}
+
+static NSString *jj_dbgStringifyValue(id value) {
+    if (!value || value == [NSNull null]) return @"<nil>";
+    if ([value isKindOfClass:[NSData class]]) {
+        return [NSString stringWithFormat:@"<NSData length=%lu>", (unsigned long)[(NSData *)value length]];
+    }
+    NSString *text = [value description] ?: @"<nil>";
+    if (text.length > 300) {
+        text = [[text substringToIndex:300] stringByAppendingString:@"..."];
+    }
+    return text;
+}
+
+static void jj_dbgEnsureWindow(void) {
+    if (!jj_debugWindow) {
+        jj_debugWindow = [[JJDebugLogWindow alloc] init];
+    }
+    if (!jj_debugDumpedMethodKeys) {
+        jj_debugDumpedMethodKeys = [NSMutableSet set];
+    }
+    jj_debugWindow.hidden = NO;
+}
+
+static void jj_dbgAppend(NSString *format, ...) {
+    if (!format) return;
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        jj_dbgEnsureWindow();
+        [jj_debugWindow appendLine:[NSString stringWithFormat:@"[%@] %@", jj_dbgTimeString(), message ?: @""]];
+    });
+}
+
+static void jj_dbgDumpProperties(id obj, NSString *title) {
+    if (!obj) return;
+    jj_dbgAppend(@"%@ class=%@", title ?: @"对象", NSStringFromClass([obj class]));
+    unsigned int propertyCount = 0;
+    objc_property_t *properties = class_copyPropertyList([obj class], &propertyCount);
+    for (unsigned int i = 0; i < propertyCount; i++) {
+        NSString *key = [NSString stringWithUTF8String:property_getName(properties[i])];
+        @try {
+            id value = [obj valueForKey:key];
+            jj_dbgAppend(@"  %@ = %@", key, jj_dbgStringifyValue(value));
+        } @catch (NSException *e) {
+            jj_dbgAppend(@"  %@ = <exception>", key);
+        }
+    }
+    if (properties) free(properties);
+}
+
+static void jj_dbgDumpFilteredMethods(Class cls, NSArray<NSString *> *keywords) {
+    if (!cls) return;
+    if (!jj_debugDumpedMethodKeys) {
+        jj_debugDumpedMethodKeys = [NSMutableSet set];
+    }
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", NSStringFromClass(cls), [keywords componentsJoinedByString:@","]];
+    if ([jj_debugDumpedMethodKeys containsObject:cacheKey]) return;
+    [jj_debugDumpedMethodKeys addObject:cacheKey];
+    
+    unsigned int methodCount = 0;
+    Method *methods = class_copyMethodList(cls, &methodCount);
+    NSMutableArray *matched = [NSMutableArray array];
+    for (unsigned int i = 0; i < methodCount; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        for (NSString *keyword in keywords) {
+            if ([[name lowercaseString] containsString:[keyword lowercaseString]]) {
+                [matched addObject:name];
+                break;
+            }
+        }
+    }
+    if (methods) free(methods);
+    if (matched.count == 0) return;
+    jj_dbgAppend(@"%@ methods(%lu): %@", NSStringFromClass(cls), (unsigned long)matched.count, [matched componentsJoinedByString:@", "]);
+}
+
+static BOOL jj_plusOneHasPayload(CMessageWrap *msgWrap) {
+    if (!msgWrap) return NO;
+    if (msgWrap.m_nsContent.length > 0) return YES;
+    if (msgWrap.m_nsImgPath.length > 0) return YES;
+    if (msgWrap.m_nsThumbImgPath.length > 0) return YES;
+    if (msgWrap.m_dtEmoticonData.length > 0) return YES;
+    if (msgWrap.m_nsEmoticonMD5.length > 0) return YES;
+    return NO;
+}
+
+static NSString *jj_plusOneUnsupportedReason(CMessageWrap *msgWrap) {
+    if (!msgWrap) return @"不支持该消息类型";
+    unsigned int msgType = msgWrap.m_uiMessageType;
+    NSString *content = msgWrap.m_nsContent ?: @"";
+    if (msgType == 50) return @"不支持+1 通话消息";
+    if (msgType == 10000) return @"不支持+1 系统消息";
+    if (msgType == 10002) return @"不支持+1 撤回消息";
+    if (msgType == 49 && [content rangeOfString:@"wxpay://"].location != NSNotFound) return @"不支持+1 支付类消息";
+    return nil;
+}
+
+static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSString *fromUser, NSString *toUser) {
+    if (!sourceMsgWrap || !toUser || toUser.length == 0) return nil;
+    CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:sourceMsgWrap.m_uiMessageType];
+    if (!newWrap) return nil;
+    
+    NSSet *skipKeys = [NSSet setWithArray:@[@"m_nsFromUsr", @"m_nsToUsr", @"m_nsRealChatUsr", @"m_uiStatus", @"m_uiCreateTime", @"m_uiMesLocalID", @"m_n64MesSvrID"]];
+    unsigned int propertyCount = 0;
+    objc_property_t *properties = class_copyPropertyList([sourceMsgWrap class], &propertyCount);
+    for (unsigned int i = 0; i < propertyCount; i++) {
+        NSString *key = [NSString stringWithUTF8String:property_getName(properties[i])];
+        if ([skipKeys containsObject:key]) continue;
+        @try {
+            id value = [sourceMsgWrap valueForKey:key];
+            if (value && value != [NSNull null]) {
+                [newWrap setValue:value forKey:key];
+            }
+        } @catch (NSException *e) {}
+    }
+    if (properties) free(properties);
+    
+    unsigned int sendTime = [WCRedEnvelopesLogicMgr jj_generateSendMsgTime];
+    newWrap.m_nsFromUsr = fromUser;
+    newWrap.m_nsToUsr = toUser;
+    newWrap.m_nsRealChatUsr = nil;
+    newWrap.m_uiStatus = 1;
+    newWrap.m_uiCreateTime = sendTime;
+    newWrap.m_uiMesLocalID = sendTime;
+    newWrap.m_n64MesSvrID = 0;
+    return newWrap;
+}
+
 #pragma mark - 消息+1（复读机）
 
 %hook CommonMessageCellView
@@ -1940,11 +2194,9 @@ static void jj_showScaleActionSheet(void) {
 %new
 - (void)jj_onPlusOne {
     @try {
-        // 关闭菜单
         MMMenuController *menuCtrl = [objc_getClass("MMMenuController") sharedMenuController];
         if (menuCtrl) [menuCtrl setMenuVisible:NO animated:YES];
         
-        // 获取消息
         CMessageWrap *msgWrap = nil;
         if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
             msgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
@@ -1956,172 +2208,79 @@ static void jj_showScaleActionSheet(void) {
         }
         if (!msgWrap) return;
         
-        // 获取当前聊天用户名
         NSString *chatUserName = jj_getChatUserNameFromResponderChain(self);
         if (!chatUserName || chatUserName.length == 0) return;
         
-        unsigned int msgType = msgWrap.m_uiMessageType;
+        jj_dbgAppend(@"[+1] cell=%@ msgClass=%@ msgType=%u chat=%@", NSStringFromClass([self class]), NSStringFromClass([msgWrap class]), msgWrap.m_uiMessageType, chatUserName);
+        jj_dbgDumpProperties(msgWrap, @"PlusOne MsgWrap");
         
-        // 获取自己的用户名
+        NSString *unsupportedReason = jj_plusOneUnsupportedReason(msgWrap);
+        if (unsupportedReason.length > 0) {
+            jj_dbgAppend(@"[+1] unsupported=%@", unsupportedReason);
+            [self jj_showPlusOneUnsupported:unsupportedReason];
+            return;
+        }
+        
         CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
         CContact *selfContact = [contactMgr getSelfContact];
         NSString *selfUserName = selfContact.m_nsUsrName;
         
         CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
         if (!msgMgr) return;
+        jj_dbgDumpFilteredMethods([msgMgr class], @[@"send", @"msg", @"forward", @"emoticon", @"image", @"video", @"voice", @"app"]);
+        jj_dbgDumpFilteredMethods([msgWrap class], @[@"img", @"thumb", @"voice", @"video", @"content", @"path", @"file", @"app"]);
         
-        switch (msgType) {
-            case 1: {
-                // 文本消息：直接发送相同文本
-                NSString *text = msgWrap.m_nsContent;
-                if (!text || text.length == 0) { [self jj_showPlusOneUnsupported:@"文本内容为空"]; return; }
-                
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = text;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiMessageType = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
+        unsigned int msgType = msgWrap.m_uiMessageType;
+        if (msgType == 1) {
+            NSString *text = msgWrap.m_nsContent;
+            if (!text || text.length == 0) {
+                jj_dbgAppend(@"[+1] text is empty");
+                [self jj_showPlusOneUnsupported:@"文本内容为空"];
+                return;
             }
-            case 47: {
-                // 表情消息（含GIF）：通过AddEmoticonMsg + MD5发送，服务器会自动解析GIF/静态
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = msgWrap.m_nsContent;
-                newWrap.m_nsEmoticonMD5 = msgWrap.m_nsEmoticonMD5;
-                newWrap.m_dtEmoticonData = msgWrap.m_dtEmoticonData;
-                newWrap.m_uiGameType = msgWrap.m_uiGameType;
-                newWrap.m_uiGameContent = msgWrap.m_uiGameContent;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiMessageType = 47;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                [msgMgr AddEmoticonMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 3: {
-                // 图片消息：复制图片路径和内容
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:3];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = msgWrap.m_nsContent;
-                newWrap.m_uiMessageType = 3;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
-                if (msgWrap.m_nsThumbImgPath) newWrap.m_nsThumbImgPath = msgWrap.m_nsThumbImgPath;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 43: {
-                // 视频消息：复制视频路径和内容
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:43];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = msgWrap.m_nsContent;
-                newWrap.m_uiMessageType = 43;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
-                if (msgWrap.m_nsThumbImgPath) newWrap.m_nsThumbImgPath = msgWrap.m_nsThumbImgPath;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 49: {
-                // 链接/文件/小程序/引用消息：复制XML内容
-                NSString *content = msgWrap.m_nsContent;
-                if (!content || content.length == 0) { [self jj_showPlusOneUnsupported:@"不支持该类型（内容为空）"]; return; }
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:49];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = content;
-                newWrap.m_uiMessageType = 49;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 34: {
-                // 语音消息：复制语音数据和内容
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:34];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = msgWrap.m_nsContent;
-                newWrap.m_uiMessageType = 34;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 42: {
-                // 名片消息：复制名片XML内容
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:42];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = msgWrap.m_nsContent;
-                newWrap.m_uiMessageType = 42;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 48: {
-                // 位置消息：复制位置内容
-                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:48];
-                newWrap.m_nsFromUsr = selfUserName;
-                newWrap.m_nsToUsr = chatUserName;
-                newWrap.m_nsContent = msgWrap.m_nsContent;
-                newWrap.m_uiMessageType = 48;
-                newWrap.m_uiStatus = 1;
-                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                break;
-            }
-            case 50:    // 语音/视频通话
-            case 10000: // 系统消息
-            case 10002: // 撤回消息
-            {
-                NSString *typeName = @"该类型";
-                if (msgType == 50) typeName = @"通话消息";
-                else if (msgType == 10000) typeName = @"系统消息";
-                else if (msgType == 10002) typeName = @"撤回消息";
-                [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1 %@", typeName]];
-                break;
-            }
-            default: {
-                // 尝试通用复制（如果有内容就尝试发送，否则提示不支持）
-                NSString *content = msgWrap.m_nsContent;
-                if (content && content.length > 0) {
-                    CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:msgType];
-                    newWrap.m_nsFromUsr = selfUserName;
-                    newWrap.m_nsToUsr = chatUserName;
-                    newWrap.m_nsContent = content;
-                    newWrap.m_uiMessageType = msgType;
-                    newWrap.m_uiStatus = 1;
-                    newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                    newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
-                    if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
-                    if (msgWrap.m_nsThumbImgPath) newWrap.m_nsThumbImgPath = msgWrap.m_nsThumbImgPath;
-                    [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+            @try {
+                if ([msgMgr respondsToSelector:@selector(SendTextMessage:toUsr:)]) {
+                    jj_dbgAppend(@"[+1] use SendTextMessage:toUsr:");
+                    [msgMgr SendTextMessage:text toUsr:chatUserName];
                 } else {
-                    [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
+                    CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+                    if (!newWrap) {
+                        jj_dbgAppend(@"[+1] text fallback clone failed");
+                        [self jj_showPlusOneUnsupported:@"该消息类型暂不支持+1"];
+                        return;
+                    }
+                    jj_dbgAppend(@"[+1] use AddMsg fallback for text");
+                    [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
                 }
-                break;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] text send exception=%@", e.reason ?: @"<nil>");
+                [self jj_showPlusOneUnsupported:@"该消息类型暂不支持+1"];
             }
+            return;
+        }
+        
+        if (!jj_plusOneHasPayload(msgWrap)) {
+            jj_dbgAppend(@"[+1] no payload for type=%u", msgType);
+            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
+            return;
+        }
+        
+        CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+        if (!newWrap) {
+            jj_dbgAppend(@"[+1] clone failed for type=%u", msgType);
+            [self jj_showPlusOneUnsupported:@"该消息类型暂不支持+1"];
+            return;
+        }
+        
+        if (msgType == 47) {
+            jj_dbgAppend(@"[+1] use AddEmoticonMsg type=%u", msgType);
+            [msgMgr AddEmoticonMsg:chatUserName MsgWrap:newWrap];
+        } else {
+            jj_dbgAppend(@"[+1] use AddMsg type=%u", msgType);
+            [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
         }
     } @catch (NSException *exception) {
+        jj_dbgAppend(@"[+1] outer exception=%@", exception.reason ?: @"<nil>");
     }
 }
 

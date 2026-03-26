@@ -130,6 +130,7 @@
 - (void)jj_sendAutoReply:(id)param;
 - (void)jj_sendNotification:(id)param amount:(long long)amount;
 - (void)jj_sendLocalNotification:(id)param amount:(long long)amount;
++ (unsigned int)jj_generateSendMsgTime;
 - (NSString *)jj_getCurrentTime;
 - (void)jj_sendMessage:(NSString *)content toUser:(NSString *)toUser;
 @end

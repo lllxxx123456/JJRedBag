@@ -106,15 +106,20 @@
         return;
     }
     
-    [self main];
-    
     self.executing = YES;
     self.finished = NO;
+    [self main];
 }
 
 - (void)main {
     if (self.delayMs > 0) {
         [NSThread sleepForTimeInterval:self.delayMs / 1000.0];
+    }
+    
+    if (self.isCancelled) {
+        self.finished = YES;
+        self.executing = NO;
+        return;
     }
     
     WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
@@ -128,6 +133,7 @@
 }
 
 - (void)cancel {
+    [super cancel];
     self.finished = YES;
     self.executing = NO;
 }

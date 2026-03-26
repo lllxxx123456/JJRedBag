@@ -21,6 +21,8 @@ static unsigned int jj_generateSendMsgTime(void) {
     return (unsigned int)[[NSDate date] timeIntervalSince1970];
 }
 
+static void jj_dbgShowLauncher(void);
+
 // 插件归纳适配
 @interface WCPluginsMgr : NSObject
 + (instancetype)sharedInstance;
@@ -1209,6 +1211,13 @@ static void jj_stopAllBackgroundModes(void) {
     %orig;
 }
 
+- (void)applicationDidBecomeActive:(id)application {
+    %orig;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        jj_dbgShowLauncher();
+    });
+}
+
 %end
 
 #pragma mark - 添加摇一摇快捷开关
@@ -1995,7 +2004,14 @@ static void jj_showScaleActionSheet(void) {
 - (void)appendLine:(NSString *)line {
     if (!line || line.length == 0) return;
     NSString *text = self.textView.text ?: @"";
-    self.textView.text = (text.length > 0) ? [text stringByAppendingFormat:@"\n%@", line] : line;
+    text = (text.length > 0) ? [text stringByAppendingFormat:@"\n%@", line] : line;
+    // 限制最多保留50行，防止数据过多
+    NSArray *lines = [text componentsSeparatedByString:@"\n"];
+    if (lines.count > 50) {
+        lines = [lines subarrayWithRange:NSMakeRange(lines.count - 50, 50)];
+        text = [lines componentsJoinedByString:@"\n"];
+    }
+    self.textView.text = text;
     NSRange range = NSMakeRange(self.textView.text.length, 0);
     [self.textView scrollRangeToVisible:range];
     self.hidden = NO;
@@ -2008,14 +2024,19 @@ static void jj_showScaleActionSheet(void) {
 }
 
 - (void)copyContent {
-    [UIPasteboard generalPasteboard].string = self.textView.text ?: @"";
+    NSString *text = self.textView.text ?: @"";
+    // 微信输入框粘贴有长度限制，截取最后2000字符
+    if (text.length > 2000) {
+        text = [text substringFromIndex:text.length - 2000];
+    }
+    [UIPasteboard generalPasteboard].string = text;
 }
 
 - (void)closeWindow {
     self.hidden = YES;
-    self.panel.hidden = NO;
+    self.panel.hidden = YES;
     self.restoreButton.hidden = YES;
-    self.jj_minimized = NO;
+    self.jj_minimized = YES;
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
@@ -2023,6 +2044,21 @@ static void jj_showScaleActionSheet(void) {
     CGPoint translation = [gesture translationInView:self];
     target.center = CGPointMake(target.center.x + translation.x, target.center.y + translation.y);
     [gesture setTranslation:CGPointZero inView:self];
+}
+
+// 关键：让触摸穿透到下层窗口，只拦截 panel 和 restoreButton 区域的触摸
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (!self.panel.hidden) {
+        CGPoint panelPoint = [self convertPoint:point toView:self.panel];
+        UIView *panelHit = [self.panel hitTest:panelPoint withEvent:event];
+        if (panelHit) return panelHit;
+    }
+    if (!self.restoreButton.hidden) {
+        CGPoint btnPoint = [self convertPoint:point toView:self.restoreButton];
+        UIView *btnHit = [self.restoreButton hitTest:btnPoint withEvent:event];
+        if (btnHit) return btnHit;
+    }
+    return nil;
 }
 
 @end
@@ -2056,6 +2092,14 @@ static void jj_dbgEnsureWindow(void) {
         jj_debugDumpedMethodKeys = [NSMutableSet set];
     }
     jj_debugWindow.hidden = NO;
+}
+
+static void jj_dbgShowLauncher(void) {
+    jj_dbgEnsureWindow();
+    jj_debugWindow.hidden = NO;
+    jj_debugWindow.jj_minimized = YES;
+    jj_debugWindow.panel.hidden = YES;
+    jj_debugWindow.restoreButton.hidden = NO;
 }
 
 static void jj_dbgAppend(NSString *format, ...) {
@@ -2176,10 +2220,12 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     if (!manager.enabled) return result;
     if (![result isKindOfClass:[NSArray class]]) return result;
     
+    if (!manager.plusOneEnabled) return result;
+    
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
+    id plusOneItem = nil;
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     if (MMMenuItemClass) {
-        MMMenuItem *plusOneItem = nil;
         @try {
             plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
         } @catch (NSException *e) {}
@@ -2188,15 +2234,34 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
                 plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
             } @catch (NSException *e) {}
         }
-        if (plusOneItem) {
-            if (newItems.count >= 1) {
-                [newItems insertObject:plusOneItem atIndex:1];
-            } else {
-                [newItems addObject:plusOneItem];
-            }
+        if (!plusOneItem) {
+            @try {
+                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jj_onPlusOne)];
+            } @catch (NSException *e) {}
+        }
+    }
+    // 最终回退：使用标准UIMenuItem
+    if (!plusOneItem) {
+        @try {
+            plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jj_onPlusOne)];
+        } @catch (NSException *e) {}
+    }
+    if (plusOneItem) {
+        if (newItems.count >= 1) {
+            [newItems insertObject:plusOneItem atIndex:1];
+        } else {
+            [newItems addObject:plusOneItem];
         }
     }
     return newItems;
+}
+
+%new
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
+    if (action == @selector(jj_onPlusOne)) {
+        return [[JJRedBagManager sharedManager] plusOneEnabled];
+    }
+    return [super canPerformAction:action withSender:sender];
 }
 
 %new
@@ -2219,8 +2284,7 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         NSString *chatUserName = jj_getChatUserNameFromResponderChain(self);
         if (!chatUserName || chatUserName.length == 0) return;
         
-        jj_dbgAppend(@"[+1] cell=%@ msgClass=%@ msgType=%u chat=%@", NSStringFromClass([self class]), NSStringFromClass([msgWrap class]), msgWrap.m_uiMessageType, chatUserName);
-        jj_dbgDumpProperties(msgWrap, @"PlusOne MsgWrap");
+        jj_dbgAppend(@"[+1] type=%u chat=%@", msgWrap.m_uiMessageType, chatUserName);
         
         NSString *unsupportedReason = jj_plusOneUnsupportedReason(msgWrap);
         if (unsupportedReason.length > 0) {
@@ -2235,8 +2299,6 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         
         CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
         if (!msgMgr) return;
-        jj_dbgDumpFilteredMethods([msgMgr class], @[@"send", @"msg", @"forward", @"emoticon", @"image", @"video", @"voice", @"app"]);
-        jj_dbgDumpFilteredMethods([msgWrap class], @[@"img", @"thumb", @"voice", @"video", @"content", @"path", @"file", @"app"]);
         
         unsigned int msgType = msgWrap.m_uiMessageType;
         if (msgType == 1) {
@@ -2320,15 +2382,28 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
-    if (MMMenuItemClass) {
-        // 添加+1菜单项（子类%orig不经过父类hook，需要在此处也添加）
-        MMMenuItem *plusOneItem = nil;
-        @try {
-            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
-        } @catch (NSException *e) {}
+    
+    // 添加+1菜单项（子类%orig不经过父类hook，需要在此处也添加）
+    if (manager.plusOneEnabled) {
+        id plusOneItem = nil;
+        if (MMMenuItemClass) {
+            @try {
+                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
+            } @catch (NSException *e) {}
+            if (!plusOneItem) {
+                @try {
+                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+                } @catch (NSException *e) {}
+            }
+            if (!plusOneItem) {
+                @try {
+                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jj_onPlusOne)];
+                } @catch (NSException *e) {}
+            }
+        }
         if (!plusOneItem) {
             @try {
-                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+                plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jj_onPlusOne)];
             } @catch (NSException *e) {}
         }
         if (plusOneItem) {
@@ -2338,10 +2413,12 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
                 [newItems addObject:plusOneItem];
             }
         }
-        
-        // 大大小小菜单项（仅在表情缩放开关开启时添加）
-        if (manager.emoticonScaleEnabled) {
-            MMMenuItem *scaleItem = nil;
+    }
+    
+    // 大大小小菜单项（仅在表情缩放开关开启时添加）
+    if (manager.emoticonScaleEnabled) {
+        id scaleItem = nil;
+        if (MMMenuItemClass) {
             @try {
                 scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_sticker" target:self action:@selector(jj_onEmoticonResize)];
             } @catch (NSException *e) {}
@@ -2350,10 +2427,31 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
                     scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" target:self action:@selector(jj_onEmoticonResize)];
                 } @catch (NSException *e) {}
             }
-            if (scaleItem) [newItems addObject:scaleItem];
+            if (!scaleItem) {
+                @try {
+                    scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" icon:nil target:self action:@selector(jj_onEmoticonResize)];
+                } @catch (NSException *e) {}
+            }
         }
+        if (!scaleItem) {
+            @try {
+                scaleItem = [[UIMenuItem alloc] initWithTitle:@"大大小小" action:@selector(jj_onEmoticonResize)];
+            } @catch (NSException *e) {}
+        }
+        if (scaleItem) [newItems addObject:scaleItem];
     }
     return newItems;
+}
+
+%new
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
+    if (action == @selector(jj_onPlusOne)) {
+        return [[JJRedBagManager sharedManager] plusOneEnabled];
+    }
+    if (action == @selector(jj_onEmoticonResize)) {
+        return [[JJRedBagManager sharedManager] emoticonScaleEnabled];
+    }
+    return [super canPerformAction:action withSender:sender];
 }
 
 %new

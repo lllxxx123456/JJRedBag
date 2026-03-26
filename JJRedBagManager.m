@@ -63,6 +63,9 @@
         _receiveNotificationChatName = @"";
         _totalReceiveAmount = 0;
         
+        // 消息+1(复读机)默认设置
+        _plusOneEnabled = NO;
+        
         // 表情包缩放默认设置
         _emoticonScaleEnabled = NO;
         
@@ -132,6 +135,9 @@
     settings[@"receiveNotificationChatId"] = self.receiveNotificationChatId ?: @"";
     settings[@"receiveNotificationChatName"] = self.receiveNotificationChatName ?: @"";
     settings[@"totalReceiveAmount"] = @(self.totalReceiveAmount);
+    
+    // 消息+1(复读机)
+    settings[@"plusOneEnabled"] = @(self.plusOneEnabled);
     
     // 表情包缩放
     settings[@"emoticonScaleEnabled"] = @(self.emoticonScaleEnabled);
@@ -207,6 +213,9 @@
         self.receiveNotificationChatId = settings[@"receiveNotificationChatId"] ?: @"";
         self.receiveNotificationChatName = settings[@"receiveNotificationChatName"] ?: @"";
         self.totalReceiveAmount = [settings[@"totalReceiveAmount"] longLongValue];
+        
+        // 消息+1(复读机)
+        self.plusOneEnabled = [settings[@"plusOneEnabled"] boolValue];
         
         // 表情包缩放
         self.emoticonScaleEnabled = [settings[@"emoticonScaleEnabled"] boolValue];

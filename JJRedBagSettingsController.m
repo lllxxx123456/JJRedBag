@@ -217,8 +217,8 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u6536\u6b3e", @"\u8868\u60c5\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
-    NSArray *subs = @[@"\u62a2\u7ea2\u5305\u3001\u56de\u590d\u3001\u901a\u77e5", @"\u4fdd\u6d3b\u3001\u6447\u4e00\u6447\u914d\u7f6e", @"\u81ea\u52a8\u786e\u8ba4\u8f6c\u8d26\u6536\u6b3e", @"\u8868\u60c5\u5305\u7f29\u653e\u529f\u80fd", @"\u9690\u85cf\u591a\u4f59\u754c\u9762\u5143\u7d20", @"\u9ab0\u5b50\u731c\u62f3\u7ed3\u679c\u63a7\u5236", @"\u5c0f\u7a0b\u5e8f\u6fc0\u52b1\u5e7f\u544a"];
+    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u6536\u6b3e", @"\u804a\u5929\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
+    NSArray *subs = @[@"\u62a2\u7ea2\u5305\u3001\u56de\u590d\u3001\u901a\u77e5", @"\u4fdd\u6d3b\u3001\u6447\u4e00\u6447\u914d\u7f6e", @"\u81ea\u52a8\u786e\u8ba4\u8f6c\u8d26\u6536\u6b3e", @"\u6d88\u606f+1\u3001\u8868\u60c5\u7f29\u653e", @"\u9690\u85cf\u591a\u4f59\u754c\u9762\u5143\u7d20", @"\u9ab0\u5b50\u731c\u62f3\u7ed3\u679c\u63a7\u5236", @"\u5c0f\u7a0b\u5e8f\u6fc0\u52b1\u5e7f\u544a"];
     NSInteger r = indexPath.row;
     cell.textLabel.text = titles[r];
     cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
@@ -254,7 +254,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (indexPath.section == 0) return;
     if (![JJRedBagManager sharedManager].enabled) return;
-    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u6536\u6b3e", @"\u8868\u60c5\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
+    NSArray *titles = @[@"\u7ea2\u5305\u8bbe\u7f6e", @"\u9ad8\u7ea7\u529f\u80fd", @"\u81ea\u52a8\u6536\u6b3e", @"\u804a\u5929\u5de5\u5177", @"\u754c\u9762\u4f18\u5316", @"\u6e38\u620f\u4f5c\u5f0a", @"\u5e7f\u544a\u8df3\u8fc7"];
     NSArray *pageTypes = @[@(JJSubPageRedBag), @(JJSubPageAdvanced), @(JJSubPageReceive), @(JJSubPageEmoticon), @(JJSubPageUI), @(JJSubPageGameCheat), @(JJSubPageAdSkip)];
     JJSubSettingsController *vc = [[JJSubSettingsController alloc] initWithPageType:(JJSubPageType)[pageTypes[indexPath.row] integerValue] title:titles[indexPath.row]];
     [self.navigationController pushViewController:vc animated:YES];
@@ -355,7 +355,11 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             count++;
             return count;
         }
-        case JJSubPageEmoticon: return manager.emoticonScaleEnabled ? 2 : 1;
+        case JJSubPageEmoticon: {
+            NSInteger count = 2; // +1开关 + 表情缩放开关
+            if (manager.emoticonScaleEnabled) count++; // 表情缓存
+            return count;
+        }
         case JJSubPageUI: return 2;
         case JJSubPageGameCheat: {
             if (!manager.gameCheatEnabled) return 1;
@@ -583,11 +587,16 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
 
 - (void)configureEmoticon:(UITableViewCell *)cell row:(NSInteger)row mgr:(JJRedBagManager *)m {
     if (row == 0) {
+        cell.textLabel.text = @"\u6d88\u606f+1\uff08\u590d\u8bfb\u673a\uff09";
+        UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.plusOneEnabled; sw.tag = 610;
+        [sw addTarget:self action:@selector(plusOneSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (row == 1) {
         cell.textLabel.text = @"\u8868\u60c5\u5305\u7f29\u653e";
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.emoticonScaleEnabled; sw.tag = 600;
         [sw addTarget:self action:@selector(emoticonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 1) {
+    } else if (row == 2) {
         NSString *cacheDir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"JJEmoticonCache"];
         unsigned long long totalSize = 0;
         NSFileManager *fm = [NSFileManager defaultManager];
@@ -689,7 +698,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         ci++;
         if (manager.receiveNotificationEnabled) { if (row == ci) { [self showReceiveNotificationContactSelect]; return; } }
     } else if (self.pageType == JJSubPageEmoticon) {
-        if (row == 1) { [self jj_clearEmoticonCache]; }
+        if (row == 2) { [self jj_clearEmoticonCache]; }
     } else if (self.pageType == JJSubPageGameCheat) {
         if (row == 1) [self showGameCheatModeSelector];
         else if (row == 2) [self showGameCheatSequenceInput:YES];
@@ -760,6 +769,16 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
             [self presentViewController:alert animated:YES completion:nil];
         }
+    }
+}
+
+- (void)plusOneSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *m = [JJRedBagManager sharedManager]; m.plusOneEnabled = sender.on; [m saveSettings]; [self.tableView reloadData];
+    if (sender.on && ![[NSUserDefaults standardUserDefaults] boolForKey:@"jj_shown_plusone_alert"]) {
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"jj_shown_plusone_alert"];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u6d88\u606f+1\uff08\u590d\u8bfb\u673a\uff09" message:@"\u5f00\u542f\u540e\uff0c\u957f\u6309\u804a\u5929\u6d88\u606f\u65f6\u83dc\u5355\u4e2d\u4f1a\u51fa\u73b0\u300c+1\u300d\u6309\u94ae\u3002\n\n\u70b9\u51fb\u540e\u5c06\u81ea\u52a8\u53d1\u9001\u4e00\u6761\u4e0e\u539f\u6d88\u606f\u76f8\u540c\u7684\u5185\u5bb9\u3002\n\n\u652f\u6301\uff1a\u6587\u5b57\u3001\u8868\u60c5\u5305\u7b49\u6d88\u606f\u7c7b\u578b\u3002" preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
     }
 }
 

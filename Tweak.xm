@@ -2387,53 +2387,92 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         if (!msgMgr) return;
         
         unsigned int msgType = msgWrap.m_uiMessageType;
+        
+        // === 文字消息 ===
         if (msgType == 1) {
             NSString *text = msgWrap.m_nsContent;
             if (!text || text.length == 0) {
-                jj_dbgAppend(@"[+1] text is empty");
                 [self jj_showPlusOneUnsupported:@"文本内容为空"];
                 return;
             }
-            @try {
-                if ([msgMgr respondsToSelector:@selector(SendTextMessage:toUsr:)]) {
-                    jj_dbgAppend(@"[+1] use SendTextMessage:toUsr:");
-                    [msgMgr SendTextMessage:text toUsr:chatUserName];
-                } else {
-                    CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
-                    if (!newWrap) {
-                        jj_dbgAppend(@"[+1] text fallback clone failed");
-                        [self jj_showPlusOneUnsupported:@"该消息类型暂不支持+1"];
-                        return;
-                    }
-                    jj_dbgAppend(@"[+1] use AddMsg fallback for text");
-                    [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                }
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] text send exception=%@", e.reason ?: @"<nil>");
-                [self jj_showPlusOneUnsupported:@"该消息类型暂不支持+1"];
+            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+            if (newWrap) {
+                jj_dbgAppend(@"[+1] text AddMsg");
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
             }
             return;
         }
         
-        if (!jj_plusOneHasPayload(msgWrap)) {
-            jj_dbgAppend(@"[+1] no payload for type=%u", msgType);
-            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
-            return;
-        }
-        
-        CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
-        if (!newWrap) {
-            jj_dbgAppend(@"[+1] clone failed for type=%u", msgType);
-            [self jj_showPlusOneUnsupported:@"该消息类型暂不支持+1"];
-            return;
-        }
-        
+        // === 表情包消息 ===
         if (msgType == 47) {
-            jj_dbgAppend(@"[+1] use AddEmoticonMsg type=%u", msgType);
-            [msgMgr AddEmoticonMsg:chatUserName MsgWrap:newWrap];
-        } else {
-            jj_dbgAppend(@"[+1] use AddMsg type=%u", msgType);
-            [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+            if (newWrap) {
+                jj_dbgAppend(@"[+1] emoticon AddEmoticonMsg");
+                [msgMgr AddEmoticonMsg:chatUserName MsgWrap:newWrap];
+            }
+            return;
+        }
+        
+        // === 图片/视频/文件等：使用消息转发API ===
+        // type=3(图片) type=43(视频) type=49(文件/链接/小程序)
+        BOOL forwarded = NO;
+        
+        // 方式1: MessageRetransmitToChat:MsgList: (最通用的转发)
+        if (!forwarded && [msgMgr respondsToSelector:@selector(MessageRetransmitToChat:MsgList:)]) {
+            @try {
+                jj_dbgAppend(@"[+1] try MessageRetransmitToChat:MsgList:");
+                [msgMgr MessageRetransmitToChat:chatUserName MsgList:@[msgWrap]];
+                forwarded = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] MessageRetransmitToChat exception=%@", e.reason);
+            }
+        }
+        
+        // 方式2: MessageRetransmit:MsgWrap: 
+        if (!forwarded && [msgMgr respondsToSelector:@selector(MessageRetransmit:MsgWrap:)]) {
+            @try {
+                jj_dbgAppend(@"[+1] try MessageRetransmit:MsgWrap:");
+                [msgMgr MessageRetransmit:chatUserName MsgWrap:msgWrap];
+                forwarded = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] MessageRetransmit exception=%@", e.reason);
+            }
+        }
+        
+        // 方式3: ForwardMessage (可能在某些版本)
+        if (!forwarded && [msgMgr respondsToSelector:@selector(ForwardMessage:toContacts:)]) {
+            @try {
+                jj_dbgAppend(@"[+1] try ForwardMessage:toContacts:");
+                [msgMgr ForwardMessage:msgWrap toContacts:@[chatUserName]];
+                forwarded = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] ForwardMessage exception=%@", e.reason);
+            }
+        }
+        
+        // 方式4: 运行时搜索包含retransmit/forward/Retransmit/Forward的方法
+        if (!forwarded) {
+            unsigned int mc = 0;
+            Method *ml = class_copyMethodList([msgMgr class], &mc);
+            NSMutableArray *candidates = [NSMutableArray array];
+            for (unsigned int j = 0; j < mc; j++) {
+                NSString *n = NSStringFromSelector(method_getName(ml[j]));
+                NSString *lower = [n lowercaseString];
+                if ([lower containsString:@"retransmit"] || [lower containsString:@"forward"]) {
+                    [candidates addObject:n];
+                }
+            }
+            if (ml) free(ml);
+            if (candidates.count > 0) {
+                jj_dbgAppend(@"[+1] found forward methods: %@", [candidates componentsJoinedByString:@", "]);
+            } else {
+                jj_dbgAppend(@"[+1] no forward/retransmit methods found on CMessageMgr");
+            }
+        }
+        
+        if (!forwarded) {
+            jj_dbgAppend(@"[+1] forward failed for type=%u", msgType);
+            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
         }
     } @catch (NSException *exception) {
         jj_dbgAppend(@"[+1] outer exception=%@", exception.reason ?: @"<nil>");

@@ -2440,23 +2440,63 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             }
         }
         
-        // 方式4: 运行时搜索包含retransmit/forward/Retransmit/Forward的方法
+        // 方式4: 运行时广泛探索
         if (!forwarded) {
+            // 搜索CMessageMgr中所有与发送/转发/图片/视频/语音/文件相关的方法
             unsigned int mc = 0;
             Method *ml = class_copyMethodList([msgMgr class], &mc);
             NSMutableArray *candidates = [NSMutableArray array];
             for (unsigned int j = 0; j < mc; j++) {
                 NSString *n = NSStringFromSelector(method_getName(ml[j]));
                 NSString *lower = [n lowercaseString];
-                if ([lower containsString:@"retransmit"] || [lower containsString:@"forward"]) {
+                if ([lower containsString:@"retransmit"] || [lower containsString:@"forward"] ||
+                    [lower containsString:@"sendimage"] || [lower containsString:@"sendvideo"] ||
+                    [lower containsString:@"sendvoice"] || [lower containsString:@"sendfile"] ||
+                    [lower containsString:@"addimage"] || [lower containsString:@"addvideo"] ||
+                    [lower containsString:@"addvoice"] || [lower containsString:@"transmit"] ||
+                    [lower containsString:@"resend"] || [lower containsString:@"share"]) {
                     [candidates addObject:n];
                 }
             }
             if (ml) free(ml);
-            if (candidates.count > 0) {
-                jj_dbgAppend(@"[+1] found forward methods: %@", [candidates componentsJoinedByString:@", "]);
-            } else {
-                jj_dbgAppend(@"[+1] no forward/retransmit methods found on CMessageMgr");
+            jj_dbgAppend(@"[探索] CMessageMgr send/forward(%u): %@", (unsigned int)candidates.count, [candidates componentsJoinedByString:@", "]);
+            
+            // 搜索其他可能的转发管理类
+            NSArray *forwardClasses = @[@"WCForwardMgr", @"WCShareMgr", @"MMForwardMgr", @"CSessionMgr", @"MMMessageForwardMgr", @"WCMessageForward", @"MsgTransmitMgr"];
+            for (NSString *clsName in forwardClasses) {
+                Class fc = objc_getClass([clsName UTF8String]);
+                if (fc) {
+                    unsigned int fmc = 0;
+                    Method *fml = class_copyMethodList(fc, &fmc);
+                    NSMutableArray *fMethods = [NSMutableArray array];
+                    for (unsigned int j = 0; j < fmc; j++) {
+                        [fMethods addObject:NSStringFromSelector(method_getName(fml[j]))];
+                    }
+                    if (fml) free(fml);
+                    jj_dbgAppend(@"[探索] %@ methods(%u): %@", clsName, fmc, [fMethods componentsJoinedByString:@", "]);
+                }
+            }
+            
+            // 也看看当前聊天VC (BaseMsgContentViewController) 上的发送方法
+            UIResponder *responder = self;
+            while (responder) {
+                NSString *cn = NSStringFromClass([responder class]);
+                if ([cn containsString:@"MsgContent"] || [cn containsString:@"ChatRoom"] || [cn containsString:@"BaseMsgContent"]) {
+                    unsigned int vmc = 0;
+                    Method *vml = class_copyMethodList([responder class], &vmc);
+                    NSMutableArray *vMethods = [NSMutableArray array];
+                    for (unsigned int j = 0; j < vmc; j++) {
+                        NSString *n = NSStringFromSelector(method_getName(vml[j]));
+                        NSString *lower = [n lowercaseString];
+                        if ([lower containsString:@"send"] || [lower containsString:@"forward"] || [lower containsString:@"image"] || [lower containsString:@"video"] || [lower containsString:@"voice"] || [lower containsString:@"transmit"]) {
+                            [vMethods addObject:n];
+                        }
+                    }
+                    if (vml) free(vml);
+                    jj_dbgAppend(@"[探索] %@ send methods(%u): %@", cn, (unsigned int)vMethods.count, [vMethods componentsJoinedByString:@", "]);
+                    break;
+                }
+                responder = [responder nextResponder];
             }
         }
         

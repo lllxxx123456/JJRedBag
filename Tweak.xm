@@ -2062,7 +2062,6 @@ static void jj_showScaleActionSheet(void) {
 @end
 
 static JJDebugLogWindow *jj_debugWindow = nil;
-static NSMutableSet *jj_debugDumpedMethodKeys = nil;
 
 static NSString *jj_dbgTimeString(void) {
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
@@ -2070,24 +2069,9 @@ static NSString *jj_dbgTimeString(void) {
     return [formatter stringFromDate:[NSDate date]];
 }
 
-static NSString *jj_dbgStringifyValue(id value) {
-    if (!value || value == [NSNull null]) return @"<nil>";
-    if ([value isKindOfClass:[NSData class]]) {
-        return [NSString stringWithFormat:@"<NSData length=%lu>", (unsigned long)[(NSData *)value length]];
-    }
-    NSString *text = [value description] ?: @"<nil>";
-    if (text.length > 300) {
-        text = [[text substringToIndex:300] stringByAppendingString:@"..."];
-    }
-    return text;
-}
-
 static void jj_dbgEnsureWindow(void) {
     if (!jj_debugWindow) {
         jj_debugWindow = [[JJDebugLogWindow alloc] init];
-    }
-    if (!jj_debugDumpedMethodKeys) {
-        jj_debugDumpedMethodKeys = [NSMutableSet set];
     }
     jj_debugWindow.hidden = NO;
 }
@@ -2110,49 +2094,6 @@ static void jj_dbgAppend(NSString *format, ...) {
         jj_dbgEnsureWindow();
         [jj_debugWindow appendLine:[NSString stringWithFormat:@"[%@] %@", jj_dbgTimeString(), message ?: @""]];
     });
-}
-
-static void jj_dbgDumpProperties(id obj, NSString *title) {
-    if (!obj) return;
-    jj_dbgAppend(@"%@ class=%@", title ?: @"对象", NSStringFromClass([obj class]));
-    unsigned int propertyCount = 0;
-    objc_property_t *properties = class_copyPropertyList([obj class], &propertyCount);
-    for (unsigned int i = 0; i < propertyCount; i++) {
-        NSString *key = [NSString stringWithUTF8String:property_getName(properties[i])];
-        @try {
-            id value = [obj valueForKey:key];
-            jj_dbgAppend(@"  %@ = %@", key, jj_dbgStringifyValue(value));
-        } @catch (NSException *e) {
-            jj_dbgAppend(@"  %@ = <exception>", key);
-        }
-    }
-    if (properties) free(properties);
-}
-
-static void jj_dbgDumpFilteredMethods(Class cls, NSArray<NSString *> *keywords) {
-    if (!cls) return;
-    if (!jj_debugDumpedMethodKeys) {
-        jj_debugDumpedMethodKeys = [NSMutableSet set];
-    }
-    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", NSStringFromClass(cls), [keywords componentsJoinedByString:@","]];
-    if ([jj_debugDumpedMethodKeys containsObject:cacheKey]) return;
-    [jj_debugDumpedMethodKeys addObject:cacheKey];
-    
-    unsigned int methodCount = 0;
-    Method *methods = class_copyMethodList(cls, &methodCount);
-    NSMutableArray *matched = [NSMutableArray array];
-    for (unsigned int i = 0; i < methodCount; i++) {
-        NSString *name = NSStringFromSelector(method_getName(methods[i]));
-        for (NSString *keyword in keywords) {
-            if ([[name lowercaseString] containsString:[keyword lowercaseString]]) {
-                [matched addObject:name];
-                break;
-            }
-        }
-    }
-    if (methods) free(methods);
-    if (matched.count == 0) return;
-    jj_dbgAppend(@"%@ methods(%lu): %@", NSStringFromClass(cls), (unsigned long)matched.count, [matched componentsJoinedByString:@", "]);
 }
 
 static BOOL jj_plusOneHasPayload(CMessageWrap *msgWrap) {

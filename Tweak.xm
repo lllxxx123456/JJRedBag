@@ -22,6 +22,10 @@ static id jj_getServiceCenter(void) {
     if (!cls) cls = objc_getClass("WXServiceCenter");
     if (!cls) return nil;
     
+    // 用objc_msgSend避免performSelector的ARC警告
+    typedef id (*JJMsgSend)(id, SEL);
+    JJMsgSend msgSend = (JJMsgSend)objc_msgSend;
+    
     // 尝试多种单例方法名
     SEL selectors[] = {
         @selector(defaultCenter),
@@ -33,7 +37,7 @@ static id jj_getServiceCenter(void) {
     for (int i = 0; i < sizeof(selectors)/sizeof(selectors[0]); i++) {
         if ([cls respondsToSelector:selectors[i]]) {
             @try {
-                id center = [cls performSelector:selectors[i]];
+                id center = msgSend((id)cls, selectors[i]);
                 if (center) {
                     jj_cachedServiceCenter = center;
                     return center;
@@ -47,10 +51,9 @@ static id jj_getServiceCenter(void) {
     Method *methods = class_copyMethodList(object_getClass(cls), &methodCount);
     for (unsigned int i = 0; i < methodCount; i++) {
         SEL sel = method_getName(methods[i]);
-        // 无参数的类方法（method_getNumberOfArguments = 2 表示只有self和_cmd）
         if (method_getNumberOfArguments(methods[i]) == 2) {
             @try {
-                id result = [cls performSelector:sel];
+                id result = msgSend((id)cls, sel);
                 if (result && [result isKindOfClass:cls]) {
                     jj_cachedServiceCenter = result;
                     free(methods);

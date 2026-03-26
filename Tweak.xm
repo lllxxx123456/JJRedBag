@@ -2403,81 +2403,65 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 图片/视频/文件/语音等媒体消息 ===
-        // 使用NSCopying深拷贝，保留m_uiMesLocalID（本地缓存文件关联）
-        jj_dbgAppend(@"[+1] media type=%u localID=%u", msgType, msgWrap.m_uiMesLocalID);
+        // === 图片/视频/文件/语音等媒体消息：使用ForwardMsgUtil转发 ===
+        jj_dbgAppend(@"[+1] media type=%u, use ForwardMsgUtil", msgType);
         
-        typedef void (*JJMsgSend2)(id, SEL, id, id);
-        CMessageWrap *copyWrap = nil;
-        @try {
-            copyWrap = [msgWrap copy];
-        } @catch (NSException *e) {
-            jj_dbgAppend(@"[+1] copy failed=%@", e.reason);
-        }
-        if (!copyWrap) {
-            [self jj_showPlusOneUnsupported:@"消息拷贝失败"];
+        // 获取目标聊天的CContact对象
+        CContact *chatContact = [contactMgr getContactByName:chatUserName];
+        if (!chatContact) {
+            jj_dbgAppend(@"[+1] chatContact is nil for %@", chatUserName);
+            [self jj_showPlusOneUnsupported:@"获取联系人失败"];
             return;
         }
         
-        // 修改拷贝的发送方向，保留原始localID
-        copyWrap.m_nsFromUsr = selfUserName;
-        copyWrap.m_nsToUsr = chatUserName;
-        copyWrap.m_uiStatus = 1;
-        copyWrap.m_n64MesSvrID = 0;
-        copyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        Class forwardUtilCls = objc_getClass("ForwardMsgUtil");
+        if (!forwardUtilCls) {
+            jj_dbgAppend(@"[+1] ForwardMsgUtil class not found");
+            [self jj_showPlusOneUnsupported:@"转发工具不可用"];
+            return;
+        }
         
         BOOL sent = NO;
         
-        // 视频(type=43): ResendVideoMsg
-        if (msgType == 43) {
-            SEL sel = NSSelectorFromString(@"ResendVideoMsg:MsgWrap:");
-            if ([msgMgr respondsToSelector:sel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] use ResendVideoMsg (copy)");
-                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, copyWrap);
-                    sent = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] ResendVideoMsg ex=%@", e.reason);
-                }
-            }
-        }
-        
-        // 语音(type=34): AddRecordMsg
-        if (!sent && msgType == 34) {
-            SEL sel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
-            if ([msgMgr respondsToSelector:sel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] use AddRecordMsg (copy)");
-                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, copyWrap);
-                    sent = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] AddRecordMsg ex=%@", e.reason);
-                }
-            }
-        }
-        
-        // 图片/文件/其他: ResendMsg
-        if (!sent) {
-            SEL sel = NSSelectorFromString(@"ResendMsg:MsgWrap:");
-            if ([msgMgr respondsToSelector:sel]) {
-                @try {
-                    jj_dbgAppend(@"[+1] use ResendMsg type=%u (copy)", msgType);
-                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, copyWrap);
-                    sent = YES;
-                } @catch (NSException *e) {
-                    jj_dbgAppend(@"[+1] ResendMsg ex=%@", e.reason);
-                }
-            }
-        }
-        
-        // 最终回退: AddMsg
-        if (!sent) {
+        // 方式1: ForwardMsg:ToContact:Scene: (微信内部转发，处理所有媒体类型)
+        SEL fwdSel = NSSelectorFromString(@"ForwardMsg:ToContact:Scene:");
+        if ([forwardUtilCls respondsToSelector:fwdSel]) {
             @try {
-                jj_dbgAppend(@"[+1] fallback AddMsg type=%u", msgType);
-                [msgMgr AddMsg:chatUserName MsgWrap:copyWrap];
+                jj_dbgAppend(@"[+1] ForwardMsg:ToContact:Scene:");
+                typedef void (*JJFwd)(id, SEL, id, id, unsigned int);
+                ((JJFwd)objc_msgSend)((id)forwardUtilCls, fwdSel, msgWrap, chatContact, (unsigned int)0);
                 sent = YES;
             } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
+                jj_dbgAppend(@"[+1] ForwardMsg ex=%@", e.reason);
+            }
+        }
+        
+        // 方式2: ForwardMsgList:ToContact:Scene:
+        if (!sent) {
+            SEL fwdListSel = NSSelectorFromString(@"ForwardMsgList:ToContact:Scene:");
+            if ([forwardUtilCls respondsToSelector:fwdListSel]) {
+                @try {
+                    jj_dbgAppend(@"[+1] ForwardMsgList:ToContact:Scene:");
+                    typedef void (*JJFwdList)(id, SEL, id, id, unsigned int);
+                    ((JJFwdList)objc_msgSend)((id)forwardUtilCls, fwdListSel, @[msgWrap], chatContact, (unsigned int)0);
+                    sent = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] ForwardMsgList ex=%@", e.reason);
+                }
+            }
+        }
+        
+        // 方式3: 回退到克隆+AddMsg
+        if (!sent) {
+            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+            if (newWrap) {
+                @try {
+                    jj_dbgAppend(@"[+1] fallback AddMsg type=%u", msgType);
+                    [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                    sent = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
+                }
             }
         }
         

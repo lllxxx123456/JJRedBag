@@ -942,6 +942,11 @@ static void jj_stopAllBackgroundModes(void) {
         [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
                               completionHandler:^(BOOL granted, NSError *error) {}];
     }
+    
+    // 显示调试窗口入口
+    dispatch_async(dispatch_get_main_queue(), ^{
+        jj_dbgShowLauncher();
+    });
 }
 
 %end
@@ -1209,13 +1214,6 @@ static void jj_stopAllBackgroundModes(void) {
     }
     
     %orig;
-}
-
-- (void)applicationDidBecomeActive:(id)application {
-    %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        jj_dbgShowLauncher();
-    });
 }
 
 %end
@@ -2256,12 +2254,11 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     return newItems;
 }
 
-%new
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
     if (action == @selector(jj_onPlusOne)) {
         return [[JJRedBagManager sharedManager] plusOneEnabled];
     }
-    return [super canPerformAction:action withSender:sender];
+    return %orig;
 }
 
 %new
@@ -2443,7 +2440,6 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     return newItems;
 }
 
-%new
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
     if (action == @selector(jj_onPlusOne)) {
         return [[JJRedBagManager sharedManager] plusOneEnabled];
@@ -2451,7 +2447,7 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     if (action == @selector(jj_onEmoticonResize)) {
         return [[JJRedBagManager sharedManager] emoticonScaleEnabled];
     }
-    return [super canPerformAction:action withSender:sender];
+    return %orig;
 }
 
 %new

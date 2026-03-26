@@ -12,9 +12,69 @@
 
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
 static id jj_cachedPayLogicMgr = nil;
+static id jj_cachedServiceCenter = nil;
+
+// 兼容多微信版本的服务中心获取
+static id jj_getServiceCenter(void) {
+    if (jj_cachedServiceCenter) return jj_cachedServiceCenter;
+    
+    Class cls = objc_getClass("MMServiceCenter");
+    if (!cls) cls = objc_getClass("WXServiceCenter");
+    if (!cls) return nil;
+    
+    // 尝试多种单例方法名
+    SEL selectors[] = {
+        @selector(defaultCenter),
+        @selector(sharedInstance),
+        @selector(sharedCenter),
+        @selector(center),
+        @selector(shared)
+    };
+    for (int i = 0; i < sizeof(selectors)/sizeof(selectors[0]); i++) {
+        if ([cls respondsToSelector:selectors[i]]) {
+            @try {
+                id center = [cls performSelector:selectors[i]];
+                if (center) {
+                    jj_cachedServiceCenter = center;
+                    return center;
+                }
+            } @catch (NSException *e) {}
+        }
+    }
+    
+    // 最终回退：运行时遍历类方法，找返回instancetype的无参方法
+    unsigned int methodCount = 0;
+    Method *methods = class_copyMethodList(object_getClass(cls), &methodCount);
+    for (unsigned int i = 0; i < methodCount; i++) {
+        SEL sel = method_getName(methods[i]);
+        // 无参数的类方法（method_getNumberOfArguments = 2 表示只有self和_cmd）
+        if (method_getNumberOfArguments(methods[i]) == 2) {
+            @try {
+                id result = [cls performSelector:sel];
+                if (result && [result isKindOfClass:cls]) {
+                    jj_cachedServiceCenter = result;
+                    free(methods);
+                    return result;
+                }
+            } @catch (NSException *e) {}
+        }
+    }
+    if (methods) free(methods);
+    
+    return nil;
+}
+
+static id jj_getService(Class serviceClass) {
+    id center = jj_getServiceCenter();
+    if (!center || !serviceClass) return nil;
+    if ([center respondsToSelector:@selector(getService:)]) {
+        return [center getService:serviceClass];
+    }
+    return nil;
+}
 
 static unsigned int jj_generateSendMsgTime(void) {
-    MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
+    MMNewSessionMgr *sessionMgr = (MMNewSessionMgr *)jj_getService(objc_getClass("MMNewSessionMgr"));
     if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
         return [sessionMgr GenSendMsgTime];
     }
@@ -162,7 +222,7 @@ static void jj_dbgShowLauncher(void);
     NSString *content = msgWrap.m_nsContent;
     
     // 获取自己的用户名
-    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
     CContact *selfContact = [contactMgr getSelfContact];
     NSString *selfUserName = [selfContact m_nsUsrName];
     
@@ -288,7 +348,7 @@ static void jj_dbgShowLauncher(void);
         reqParams[@"sendId"] = sendId;
         
         // 获取自己的信息
-        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+        CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
         CContact *selfContact = [contactMgr getSelfContact];
         
         // 创建红包参数并加入队列
@@ -317,8 +377,7 @@ static void jj_dbgShowLauncher(void);
         }
         
         // 使用ReceiverQueryRedEnvelopesRequest方法查询红包状态
-        WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
-                                              getService:objc_getClass("WCRedEnvelopesLogicMgr")];
+        WCRedEnvelopesLogicMgr *logicMgr = jj_getService(objc_getClass("WCRedEnvelopesLogicMgr"));
         if (logicMgr) {
             [logicMgr ReceiverQueryRedEnvelopesRequest:reqParams];
         }
@@ -512,8 +571,7 @@ static void jj_dbgShowLauncher(void);
         WCPayLogicMgr *payLogicMgr = (WCPayLogicMgr *)jj_cachedPayLogicMgr;
         if (!payLogicMgr) {
             @try {
-                payLogicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
-                               getService:objc_getClass("WCPayLogicMgr")];
+                payLogicMgr = jj_getService(objc_getClass("WCPayLogicMgr"));
                 if (payLogicMgr) jj_cachedPayLogicMgr = payLogicMgr;
             } @catch (NSException *e) {
             }
@@ -995,8 +1053,7 @@ static void jj_stopAllBackgroundModes(void) {
                 JJReceiveRedBagOperation *operation = [[JJReceiveRedBagOperation alloc] initWithRedBagParam:param delay:delayMs];
                 [[JJRedBagTaskManager sharedManager] addNormalTask:operation];
             } else {
-                WCRedEnvelopesLogicMgr *logicMgr = [[objc_getClass("MMServiceCenter") defaultCenter] 
-                                                      getService:objc_getClass("WCRedEnvelopesLogicMgr")];
+                WCRedEnvelopesLogicMgr *logicMgr = jj_getService(objc_getClass("WCRedEnvelopesLogicMgr"));
                 if (logicMgr) {
                     [logicMgr OpenRedEnvelopesRequest:[param toParams]];
                 }
@@ -1097,7 +1154,7 @@ static void jj_stopAllBackgroundModes(void) {
     }
     
     // 显示发送者
-    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
     
     if (param.isGroup) {
         // 群聊红包：显示群名和发送者
@@ -1157,7 +1214,7 @@ static void jj_stopAllBackgroundModes(void) {
 
 %new
 + (unsigned int)jj_generateSendMsgTime {
-    MMNewSessionMgr *sessionMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("MMNewSessionMgr")];
+    MMNewSessionMgr *sessionMgr = jj_getService(objc_getClass("MMNewSessionMgr"));
     if (sessionMgr && [sessionMgr respondsToSelector:@selector(GenSendMsgTime)]) {
         return [sessionMgr GenSendMsgTime];
     }
@@ -1172,7 +1229,7 @@ static void jj_stopAllBackgroundModes(void) {
     if (!msgWrap) return;
     
     // 获取自己
-    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
     CContact *selfContact = [contactMgr getSelfContact];
     
     msgWrap.m_nsFromUsr = [selfContact m_nsUsrName];
@@ -1186,7 +1243,7 @@ static void jj_stopAllBackgroundModes(void) {
     
     msgWrap.m_uiMesLocalID = (unsigned int)msgWrap.m_uiCreateTime;
     
-    CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+    CMessageMgr *msgMgr = jj_getService(objc_getClass("CMessageMgr"));
     [msgMgr AddMsg:toUser MsgWrap:msgWrap];
 }
 
@@ -1431,7 +1488,7 @@ static NSData *jj_captureEmoticonFromView(UIView *cellView, CMessageWrap *msgWra
     if (md5 && md5.length > 0) {
         // 2a: getEmoticonWrapByMd5
         @try {
-            CEmoticonMgr *emoticonMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CEmoticonMgr")];
+            CEmoticonMgr *emoticonMgr = jj_getService(objc_getClass("CEmoticonMgr"));
             if (emoticonMgr && [emoticonMgr respondsToSelector:@selector(getEmoticonWrapByMd5:)]) {
                 CEmoticonWrap *wrap = [emoticonMgr getEmoticonWrapByMd5:md5];
                 if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) {
@@ -1650,10 +1707,10 @@ static NSData *jj_scaleGIFImage(NSData *gifData, CGFloat scaleFactor) {
 static void jj_sendScaledEmoticonData(NSData *scaledData, NSString *toUserName, BOOL isGIF) {
     if (!scaledData || scaledData.length == 0 || !toUserName) return;
     
-    CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+    CMessageMgr *msgMgr = jj_getService(objc_getClass("CMessageMgr"));
     if (!msgMgr) return;
     
-    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+    CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
     NSString *selfUserName = [[contactMgr getSelfContact] m_nsUsrName];
     
     // 方式1：通过CEmoticonMgr创建消息（推荐，微信会自动处理上传和缓存）
@@ -2231,11 +2288,15 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+        id serviceCenter = jj_getServiceCenter();
+        jj_dbgAppend(@"[+1] serviceCenter=%@", serviceCenter ? NSStringFromClass([serviceCenter class]) : @"nil");
+        
+        CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
         CContact *selfContact = [contactMgr getSelfContact];
         NSString *selfUserName = selfContact.m_nsUsrName;
         
-        CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+        CMessageMgr *msgMgr = jj_getService(objc_getClass("CMessageMgr"));
+        jj_dbgAppend(@"[+1] msgMgr=%@ contactMgr=%@", msgMgr ? @"OK" : @"nil", contactMgr ? @"OK" : @"nil");
         if (!msgMgr) return;
         
         unsigned int msgType = msgWrap.m_uiMessageType;
@@ -2321,34 +2382,43 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     
-    // 添加+1菜单项（子类%orig不经过父类hook，需要在此处也添加）
+    // 检查+1是否已由父类hook添加，避免重复
     if (manager.plusOneEnabled) {
-        id plusOneItem = nil;
-        if (MMMenuItemClass) {
-            @try {
-                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
-            } @catch (NSException *e) {}
-            if (!plusOneItem) {
+        BOOL hasPlusOne = NO;
+        for (id item in newItems) {
+            if ([item respondsToSelector:@selector(title)] && [[item title] isEqualToString:@"+1"]) {
+                hasPlusOne = YES;
+                break;
+            }
+        }
+        if (!hasPlusOne) {
+            id plusOneItem = nil;
+            if (MMMenuItemClass) {
                 @try {
-                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
                 } @catch (NSException *e) {}
+                if (!plusOneItem) {
+                    @try {
+                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+                    } @catch (NSException *e) {}
+                }
+                if (!plusOneItem) {
+                    @try {
+                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jj_onPlusOne)];
+                    } @catch (NSException *e) {}
+                }
             }
             if (!plusOneItem) {
                 @try {
-                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jj_onPlusOne)];
+                    plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jj_onPlusOne)];
                 } @catch (NSException *e) {}
             }
-        }
-        if (!plusOneItem) {
-            @try {
-                plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jj_onPlusOne)];
-            } @catch (NSException *e) {}
-        }
-        if (plusOneItem) {
-            if (newItems.count >= 1) {
-                [newItems insertObject:plusOneItem atIndex:1];
-            } else {
-                [newItems addObject:plusOneItem];
+            if (plusOneItem) {
+                if (newItems.count >= 1) {
+                    [newItems insertObject:plusOneItem atIndex:1];
+                } else {
+                    [newItems addObject:plusOneItem];
+                }
             }
         }
     }

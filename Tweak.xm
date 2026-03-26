@@ -2403,105 +2403,72 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 图片/视频/文件等：使用消息转发API ===
-        // type=3(图片) type=43(视频) type=49(文件/链接/小程序)
+        // === 图片/视频/文件/语音等：通过聊天VC的AsyncSendMessage转发 ===
+        typedef void (*JJSend4)(id, SEL, id, id, id, BOOL);
         BOOL forwarded = NO;
         
-        // 方式1: MessageRetransmitToChat:MsgList: (最通用的转发)
-        if (!forwarded && [msgMgr respondsToSelector:@selector(MessageRetransmitToChat:MsgList:)]) {
-            @try {
-                jj_dbgAppend(@"[+1] try MessageRetransmitToChat:MsgList:");
-                [msgMgr MessageRetransmitToChat:chatUserName MsgList:@[msgWrap]];
-                forwarded = YES;
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] MessageRetransmitToChat exception=%@", e.reason);
-            }
+        // 克隆消息体
+        CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+        if (!newWrap) {
+            jj_dbgAppend(@"[+1] clone failed for type=%u", msgType);
+            [self jj_showPlusOneUnsupported:@"消息克隆失败"];
+            return;
         }
         
-        // 方式2: MessageRetransmit:MsgWrap: 
-        if (!forwarded && [msgMgr respondsToSelector:@selector(MessageRetransmit:MsgWrap:)]) {
-            @try {
-                jj_dbgAppend(@"[+1] try MessageRetransmit:MsgWrap:");
-                [msgMgr MessageRetransmit:chatUserName MsgWrap:msgWrap];
-                forwarded = YES;
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] MessageRetransmit exception=%@", e.reason);
+        // 方式1: 通过聊天VC的AsyncSendMessage发送（最可靠）
+        UIResponder *responder = self;
+        id chatVC = nil;
+        while (responder) {
+            NSString *cn = NSStringFromClass([responder class]);
+            if ([cn containsString:@"MsgContent"] || [cn containsString:@"BaseMsgContent"]) {
+                chatVC = responder;
+                break;
             }
+            responder = [responder nextResponder];
         }
         
-        // 方式3: ForwardMessage (可能在某些版本)
-        if (!forwarded && [msgMgr respondsToSelector:@selector(ForwardMessage:toContacts:)]) {
-            @try {
-                jj_dbgAppend(@"[+1] try ForwardMessage:toContacts:");
-                [msgMgr ForwardMessage:msgWrap toContacts:@[chatUserName]];
-                forwarded = YES;
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] ForwardMessage exception=%@", e.reason);
+        if (chatVC) {
+            SEL asyncSendSel = NSSelectorFromString(@"AsyncSendMessage:replyingMsg:referPartialInfo:isPasted:");
+            if ([chatVC respondsToSelector:asyncSendSel]) {
+                @try {
+                    jj_dbgAppend(@"[+1] try AsyncSendMessage on %@", NSStringFromClass([chatVC class]));
+                    ((JJSend4)objc_msgSend)(chatVC, asyncSendSel, newWrap, nil, nil, NO);
+                    forwarded = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] AsyncSendMessage exception=%@", e.reason);
+                }
             }
+            
+            // 方式1b: AsyncSendMessage: (单参数版本)
+            if (!forwarded) {
+                SEL addMsgSel = NSSelectorFromString(@"AsyncSendMessage:");
+                if ([chatVC respondsToSelector:addMsgSel]) {
+                    @try {
+                        jj_dbgAppend(@"[+1] try AsyncSendMessage: (1 arg)");
+                        ((void (*)(id, SEL, id))objc_msgSend)(chatVC, addMsgSel, newWrap);
+                        forwarded = YES;
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] AsyncSendMessage 1arg exception=%@", e.reason);
+                    }
+                }
+            }
+        } else {
+            jj_dbgAppend(@"[+1] chatVC not found in responder chain");
         }
         
-        // 方式4: 运行时广泛探索
+        // 方式2: CMessageMgr的AddMsg（回退方案，可能只对部分类型有效）
         if (!forwarded) {
-            // 搜索CMessageMgr中所有与发送/转发/图片/视频/语音/文件相关的方法
-            unsigned int mc = 0;
-            Method *ml = class_copyMethodList([msgMgr class], &mc);
-            NSMutableArray *candidates = [NSMutableArray array];
-            for (unsigned int j = 0; j < mc; j++) {
-                NSString *n = NSStringFromSelector(method_getName(ml[j]));
-                NSString *lower = [n lowercaseString];
-                if ([lower containsString:@"retransmit"] || [lower containsString:@"forward"] ||
-                    [lower containsString:@"sendimage"] || [lower containsString:@"sendvideo"] ||
-                    [lower containsString:@"sendvoice"] || [lower containsString:@"sendfile"] ||
-                    [lower containsString:@"addimage"] || [lower containsString:@"addvideo"] ||
-                    [lower containsString:@"addvoice"] || [lower containsString:@"transmit"] ||
-                    [lower containsString:@"resend"] || [lower containsString:@"share"]) {
-                    [candidates addObject:n];
-                }
-            }
-            if (ml) free(ml);
-            jj_dbgAppend(@"[探索] CMessageMgr send/forward(%u): %@", (unsigned int)candidates.count, [candidates componentsJoinedByString:@", "]);
-            
-            // 搜索其他可能的转发管理类
-            NSArray *forwardClasses = @[@"WCForwardMgr", @"WCShareMgr", @"MMForwardMgr", @"CSessionMgr", @"MMMessageForwardMgr", @"WCMessageForward", @"MsgTransmitMgr"];
-            for (NSString *clsName in forwardClasses) {
-                Class fc = objc_getClass([clsName UTF8String]);
-                if (fc) {
-                    unsigned int fmc = 0;
-                    Method *fml = class_copyMethodList(fc, &fmc);
-                    NSMutableArray *fMethods = [NSMutableArray array];
-                    for (unsigned int j = 0; j < fmc; j++) {
-                        [fMethods addObject:NSStringFromSelector(method_getName(fml[j]))];
-                    }
-                    if (fml) free(fml);
-                    jj_dbgAppend(@"[探索] %@ methods(%u): %@", clsName, fmc, [fMethods componentsJoinedByString:@", "]);
-                }
-            }
-            
-            // 也看看当前聊天VC (BaseMsgContentViewController) 上的发送方法
-            UIResponder *responder = self;
-            while (responder) {
-                NSString *cn = NSStringFromClass([responder class]);
-                if ([cn containsString:@"MsgContent"] || [cn containsString:@"ChatRoom"] || [cn containsString:@"BaseMsgContent"]) {
-                    unsigned int vmc = 0;
-                    Method *vml = class_copyMethodList([responder class], &vmc);
-                    NSMutableArray *vMethods = [NSMutableArray array];
-                    for (unsigned int j = 0; j < vmc; j++) {
-                        NSString *n = NSStringFromSelector(method_getName(vml[j]));
-                        NSString *lower = [n lowercaseString];
-                        if ([lower containsString:@"send"] || [lower containsString:@"forward"] || [lower containsString:@"image"] || [lower containsString:@"video"] || [lower containsString:@"voice"] || [lower containsString:@"transmit"]) {
-                            [vMethods addObject:n];
-                        }
-                    }
-                    if (vml) free(vml);
-                    jj_dbgAppend(@"[探索] %@ send methods(%u): %@", cn, (unsigned int)vMethods.count, [vMethods componentsJoinedByString:@", "]);
-                    break;
-                }
-                responder = [responder nextResponder];
+            @try {
+                jj_dbgAppend(@"[+1] fallback AddMsg for type=%u", msgType);
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                forwarded = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] AddMsg fallback exception=%@", e.reason);
             }
         }
         
         if (!forwarded) {
-            jj_dbgAppend(@"[+1] forward failed for type=%u", msgType);
+            jj_dbgAppend(@"[+1] all methods failed for type=%u", msgType);
             [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
         }
     } @catch (NSException *exception) {

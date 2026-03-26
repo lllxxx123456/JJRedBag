@@ -2403,14 +2403,90 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 图片/视频/文件/语音等：使用batchForwardMessage转发原始消息 ===
-        jj_dbgAppend(@"[+1] media type=%u, use batchForwardMessage", msgType);
-        @try {
-            [msgMgr batchForwardMessage:@[msgWrap] toUserArray:@[chatUserName]];
-            jj_dbgAppend(@"[+1] batchForwardMessage OK for type=%u", msgType);
-        } @catch (NSException *e) {
-            jj_dbgAppend(@"[+1] batchForwardMessage exception=%@", e.reason);
-            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"转发失败：%@", e.reason ?: @"未知错误"]];
+        // === 图片/视频/文件/语音等：运行时查找转发方法 ===
+        jj_dbgAppend(@"[+1] media type=%u msgMgr class=%@", msgType, NSStringFromClass([msgMgr class]));
+        
+        typedef void (*JJMsgSend2)(id, SEL, id, id);
+        BOOL forwarded = NO;
+        
+        // 遍历msgMgr类层级，查找所有forward/batch/retransmit/send相关方法
+        {
+            Class cls = [msgMgr class];
+            NSMutableArray *allCandidates = [NSMutableArray array];
+            while (cls) {
+                unsigned int mc = 0;
+                Method *ml = class_copyMethodList(cls, &mc);
+                for (unsigned int j = 0; j < mc; j++) {
+                    NSString *n = NSStringFromSelector(method_getName(ml[j]));
+                    NSString *lower = [n lowercaseString];
+                    if ([lower containsString:@"forward"] || [lower containsString:@"batch"] ||
+                        [lower containsString:@"retransmit"] || [lower containsString:@"transmit"] ||
+                        [lower containsString:@"resend"]) {
+                        [allCandidates addObject:[NSString stringWithFormat:@"%@::%@", NSStringFromClass(cls), n]];
+                    }
+                }
+                if (ml) free(ml);
+                cls = class_getSuperclass(cls);
+                if (cls == [NSObject class]) break;
+            }
+            jj_dbgAppend(@"[探索] msgMgr forward/batch(%u): %@", (unsigned int)allCandidates.count, [allCandidates componentsJoinedByString:@", "]);
+        }
+        
+        // 方式1: batchForwardMessage:toUserArray: (8.0.69头文件)
+        SEL batchSel = NSSelectorFromString(@"batchForwardMessage:toUserArray:");
+        if (!forwarded && [msgMgr respondsToSelector:batchSel]) {
+            @try {
+                jj_dbgAppend(@"[+1] try batchForwardMessage");
+                ((JJMsgSend2)objc_msgSend)(msgMgr, batchSel, @[msgWrap], @[chatUserName]);
+                forwarded = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] batchForward ex=%@", e.reason);
+            }
+        }
+        
+        // 方式2: sendMsg:toContactUsrName:
+        SEL sendMsgSel = NSSelectorFromString(@"sendMsg:toContactUsrName:");
+        if (!forwarded && [msgMgr respondsToSelector:sendMsgSel]) {
+            @try {
+                jj_dbgAppend(@"[+1] try sendMsg:toContactUsrName:");
+                ((JJMsgSend2)objc_msgSend)(msgMgr, sendMsgSel, msgWrap, chatUserName);
+                forwarded = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] sendMsg ex=%@", e.reason);
+            }
+        }
+        
+        // 方式3: ResendMsg:MsgWrap: (用克隆消息)
+        SEL resendSel = NSSelectorFromString(@"ResendMsg:MsgWrap:");
+        if (!forwarded && [msgMgr respondsToSelector:resendSel]) {
+            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+            if (newWrap) {
+                @try {
+                    jj_dbgAppend(@"[+1] try ResendMsg:MsgWrap:");
+                    ((JJMsgSend2)objc_msgSend)(msgMgr, resendSel, chatUserName, newWrap);
+                    forwarded = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] ResendMsg ex=%@", e.reason);
+                }
+            }
+        }
+        
+        // 方式4: AddMsg克隆（回退，可能对部分类型不完美）
+        if (!forwarded) {
+            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
+            if (newWrap) {
+                @try {
+                    jj_dbgAppend(@"[+1] fallback AddMsg for type=%u", msgType);
+                    [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                    forwarded = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
+                }
+            }
+        }
+        
+        if (!forwarded) {
+            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
         }
     } @catch (NSException *exception) {
         jj_dbgAppend(@"[+1] outer exception=%@", exception.reason ?: @"<nil>");

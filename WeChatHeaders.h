@@ -264,6 +264,8 @@
 - (struct CGRect)showRectForMenuController;
 - (id)getViewController;
 - (id)getMsgCmessageWrap;
+- (void)jj_onPlusOne;
+- (void)jj_showPlusOneUnsupported:(NSString *)reason;
 @end
 
 @interface CommonMessageViewModel : NSObject

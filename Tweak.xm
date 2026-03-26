@@ -1903,6 +1903,244 @@ static void jj_showScaleActionSheet(void) {
     });
 }
 
+#pragma mark - 消息+1（复读机）
+
+%hook CommonMessageCellView
+
+- (id)filteredMenuItems:(id)items {
+    id result = %orig;
+    
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    if (!manager.enabled) return result;
+    if (![result isKindOfClass:[NSArray class]]) return result;
+    
+    NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
+    Class MMMenuItemClass = objc_getClass("MMMenuItem");
+    if (MMMenuItemClass) {
+        MMMenuItem *plusOneItem = nil;
+        @try {
+            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
+        } @catch (NSException *e) {}
+        if (!plusOneItem) {
+            @try {
+                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+            } @catch (NSException *e) {}
+        }
+        if (plusOneItem) {
+            if (newItems.count >= 1) {
+                [newItems insertObject:plusOneItem atIndex:1];
+            } else {
+                [newItems addObject:plusOneItem];
+            }
+        }
+    }
+    return newItems;
+}
+
+%new
+- (void)jj_onPlusOne {
+    @try {
+        // 关闭菜单
+        MMMenuController *menuCtrl = [objc_getClass("MMMenuController") sharedMenuController];
+        if (menuCtrl) [menuCtrl setMenuVisible:NO animated:YES];
+        
+        // 获取消息
+        CMessageWrap *msgWrap = nil;
+        if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
+            msgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
+        }
+        if (!msgWrap) {
+            id vm = nil;
+            if ([self respondsToSelector:@selector(viewModel)]) vm = [self performSelector:@selector(viewModel)];
+            if (vm && [vm respondsToSelector:@selector(messageWrap)]) msgWrap = [vm performSelector:@selector(messageWrap)];
+        }
+        if (!msgWrap) return;
+        
+        // 获取当前聊天用户名
+        NSString *chatUserName = jj_getChatUserNameFromResponderChain(self);
+        if (!chatUserName || chatUserName.length == 0) return;
+        
+        unsigned int msgType = msgWrap.m_uiMessageType;
+        
+        // 获取自己的用户名
+        CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")];
+        CContact *selfContact = [contactMgr getSelfContact];
+        NSString *selfUserName = selfContact.m_nsUsrName;
+        
+        CMessageMgr *msgMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CMessageMgr")];
+        if (!msgMgr) return;
+        
+        switch (msgType) {
+            case 1: {
+                // 文本消息：直接发送相同文本
+                NSString *text = msgWrap.m_nsContent;
+                if (!text || text.length == 0) { [self jj_showPlusOneUnsupported:@"文本内容为空"]; return; }
+                
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:1];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = text;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiMessageType = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 47: {
+                // 表情消息（含GIF）：通过AddEmoticonMsg + MD5发送，服务器会自动解析GIF/静态
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = msgWrap.m_nsContent;
+                newWrap.m_nsEmoticonMD5 = msgWrap.m_nsEmoticonMD5;
+                newWrap.m_dtEmoticonData = msgWrap.m_dtEmoticonData;
+                newWrap.m_uiGameType = msgWrap.m_uiGameType;
+                newWrap.m_uiGameContent = msgWrap.m_uiGameContent;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiMessageType = 47;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                [msgMgr AddEmoticonMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 3: {
+                // 图片消息：复制图片路径和内容
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:3];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = msgWrap.m_nsContent;
+                newWrap.m_uiMessageType = 3;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
+                if (msgWrap.m_nsThumbImgPath) newWrap.m_nsThumbImgPath = msgWrap.m_nsThumbImgPath;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 43: {
+                // 视频消息：复制视频路径和内容
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:43];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = msgWrap.m_nsContent;
+                newWrap.m_uiMessageType = 43;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
+                if (msgWrap.m_nsThumbImgPath) newWrap.m_nsThumbImgPath = msgWrap.m_nsThumbImgPath;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 49: {
+                // 链接/文件/小程序/引用消息：复制XML内容
+                NSString *content = msgWrap.m_nsContent;
+                if (!content || content.length == 0) { [self jj_showPlusOneUnsupported:@"不支持该类型（内容为空）"]; return; }
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:49];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = content;
+                newWrap.m_uiMessageType = 49;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 34: {
+                // 语音消息：复制语音数据和内容
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:34];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = msgWrap.m_nsContent;
+                newWrap.m_uiMessageType = 34;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 42: {
+                // 名片消息：复制名片XML内容
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:42];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = msgWrap.m_nsContent;
+                newWrap.m_uiMessageType = 42;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 48: {
+                // 位置消息：复制位置内容
+                CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:48];
+                newWrap.m_nsFromUsr = selfUserName;
+                newWrap.m_nsToUsr = chatUserName;
+                newWrap.m_nsContent = msgWrap.m_nsContent;
+                newWrap.m_uiMessageType = 48;
+                newWrap.m_uiStatus = 1;
+                newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                break;
+            }
+            case 50:    // 语音/视频通话
+            case 10000: // 系统消息
+            case 10002: // 撤回消息
+            {
+                NSString *typeName = @"该类型";
+                if (msgType == 50) typeName = @"通话消息";
+                else if (msgType == 10000) typeName = @"系统消息";
+                else if (msgType == 10002) typeName = @"撤回消息";
+                [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1 %@", typeName]];
+                break;
+            }
+            default: {
+                // 尝试通用复制（如果有内容就尝试发送，否则提示不支持）
+                NSString *content = msgWrap.m_nsContent;
+                if (content && content.length > 0) {
+                    CMessageWrap *newWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:msgType];
+                    newWrap.m_nsFromUsr = selfUserName;
+                    newWrap.m_nsToUsr = chatUserName;
+                    newWrap.m_nsContent = content;
+                    newWrap.m_uiMessageType = msgType;
+                    newWrap.m_uiStatus = 1;
+                    newWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                    newWrap.m_uiMesLocalID = newWrap.m_uiCreateTime;
+                    if (msgWrap.m_nsImgPath) newWrap.m_nsImgPath = msgWrap.m_nsImgPath;
+                    if (msgWrap.m_nsThumbImgPath) newWrap.m_nsThumbImgPath = msgWrap.m_nsThumbImgPath;
+                    [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
+                } else {
+                    [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1该消息类型（type=%u）", msgType]];
+                }
+                break;
+            }
+        }
+    } @catch (NSException *exception) {
+    }
+}
+
+%new
+- (void)jj_showPlusOneUnsupported:(NSString *)reason {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        while (topVC.presentedViewController) topVC = topVC.presentedViewController;
+        
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"+1"
+                                                                       message:reason
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [topVC presentViewController:alert animated:YES completion:nil];
+    });
+}
+
+%end
+
 // Hook表情消息Cell - 通过filteredMenuItems添加"调整大小"菜单项
 %hook EmoticonMessageCellView
 
@@ -1911,24 +2149,42 @@ static void jj_showScaleActionSheet(void) {
     
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (!manager.enabled) return result;
-    if (!manager.emoticonScaleEnabled) return result;
     if (![result isKindOfClass:[NSArray class]]) return result;
     
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     if (MMMenuItemClass) {
-        MMMenuItem *scaleItem = nil;
-        // 使用svgName版本（8.0.66支持）
+        // 添加+1菜单项（子类%orig不经过父类hook，需要在此处也添加）
+        MMMenuItem *plusOneItem = nil;
         @try {
-            scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_sticker" target:self action:@selector(jj_onEmoticonResize)];
+            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_addpeople" target:self action:@selector(jj_onPlusOne)];
         } @catch (NSException *e) {}
-        // 备用：纯文字版本
-        if (!scaleItem) {
+        if (!plusOneItem) {
             @try {
-                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" target:self action:@selector(jj_onEmoticonResize)];
+                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
             } @catch (NSException *e) {}
         }
-        if (scaleItem) [newItems addObject:scaleItem];
+        if (plusOneItem) {
+            if (newItems.count >= 1) {
+                [newItems insertObject:plusOneItem atIndex:1];
+            } else {
+                [newItems addObject:plusOneItem];
+            }
+        }
+        
+        // 大大小小菜单项（仅在表情缩放开关开启时添加）
+        if (manager.emoticonScaleEnabled) {
+            MMMenuItem *scaleItem = nil;
+            @try {
+                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_sticker" target:self action:@selector(jj_onEmoticonResize)];
+            } @catch (NSException *e) {}
+            if (!scaleItem) {
+                @try {
+                    scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" target:self action:@selector(jj_onEmoticonResize)];
+                } @catch (NSException *e) {}
+            }
+            if (scaleItem) [newItems addObject:scaleItem];
+        }
     }
     return newItems;
 }

@@ -2404,76 +2404,80 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
         }
         
         // === 图片/视频/文件/语音等媒体消息 ===
-        jj_dbgAppend(@"[+1] media type=%u", msgType);
+        // 使用NSCopying深拷贝，保留m_uiMesLocalID（本地缓存文件关联）
+        jj_dbgAppend(@"[+1] media type=%u localID=%u", msgType, msgWrap.m_uiMesLocalID);
         
         typedef void (*JJMsgSend2)(id, SEL, id, id);
-        BOOL sent = NO;
-        
-        // 视频(43)和语音(34): 直接用原始消息，临时修改发送方向
-        // 原因：Resend/AddRecord依赖原始m_uiMesLocalID定位本地缓存文件
-        if (msgType == 43 || msgType == 34) {
-            NSString *origFrom = msgWrap.m_nsFromUsr;
-            unsigned int origStatus = msgWrap.m_uiStatus;
-            long long origSvrID = msgWrap.m_n64MesSvrID;
-            
-            msgWrap.m_nsFromUsr = selfUserName;
-            msgWrap.m_nsToUsr = chatUserName;
-            msgWrap.m_uiStatus = 1;
-            msgWrap.m_n64MesSvrID = 0;
-            
-            if (msgType == 43) {
-                SEL sel = NSSelectorFromString(@"ResendVideoMsg:MsgWrap:");
-                if ([msgMgr respondsToSelector:sel]) {
-                    @try {
-                        jj_dbgAppend(@"[+1] use ResendVideoMsg (original wrap)");
-                        ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, msgWrap);
-                        sent = YES;
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] ResendVideoMsg ex=%@", e.reason);
-                    }
-                }
-            } else {
-                SEL sel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
-                if ([msgMgr respondsToSelector:sel]) {
-                    @try {
-                        jj_dbgAppend(@"[+1] use AddRecordMsg (original wrap)");
-                        ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, msgWrap);
-                        sent = YES;
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] AddRecordMsg ex=%@", e.reason);
-                    }
-                }
-            }
-            
-            // 恢复原始消息属性，避免影响聊天记录显示
-            msgWrap.m_nsFromUsr = origFrom;
-            msgWrap.m_uiStatus = origStatus;
-            msgWrap.m_n64MesSvrID = origSvrID;
+        CMessageWrap *copyWrap = nil;
+        @try {
+            copyWrap = [msgWrap copy];
+        } @catch (NSException *e) {
+            jj_dbgAppend(@"[+1] copy failed=%@", e.reason);
+        }
+        if (!copyWrap) {
+            [self jj_showPlusOneUnsupported:@"消息拷贝失败"];
+            return;
         }
         
-        // 图片/文件/其他: 用克隆+ResendMsg（已验证可用）
+        // 修改拷贝的发送方向，保留原始localID
+        copyWrap.m_nsFromUsr = selfUserName;
+        copyWrap.m_nsToUsr = chatUserName;
+        copyWrap.m_uiStatus = 1;
+        copyWrap.m_n64MesSvrID = 0;
+        copyWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+        
+        BOOL sent = NO;
+        
+        // 视频(type=43): ResendVideoMsg
+        if (msgType == 43) {
+            SEL sel = NSSelectorFromString(@"ResendVideoMsg:MsgWrap:");
+            if ([msgMgr respondsToSelector:sel]) {
+                @try {
+                    jj_dbgAppend(@"[+1] use ResendVideoMsg (copy)");
+                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, copyWrap);
+                    sent = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] ResendVideoMsg ex=%@", e.reason);
+                }
+            }
+        }
+        
+        // 语音(type=34): AddRecordMsg
+        if (!sent && msgType == 34) {
+            SEL sel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
+            if ([msgMgr respondsToSelector:sel]) {
+                @try {
+                    jj_dbgAppend(@"[+1] use AddRecordMsg (copy)");
+                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, copyWrap);
+                    sent = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] AddRecordMsg ex=%@", e.reason);
+                }
+            }
+        }
+        
+        // 图片/文件/其他: ResendMsg
         if (!sent) {
-            CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
-            if (newWrap) {
-                SEL sel = NSSelectorFromString(@"ResendMsg:MsgWrap:");
-                if ([msgMgr respondsToSelector:sel]) {
-                    @try {
-                        jj_dbgAppend(@"[+1] use ResendMsg type=%u", msgType);
-                        ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, newWrap);
-                        sent = YES;
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] ResendMsg ex=%@", e.reason);
-                    }
+            SEL sel = NSSelectorFromString(@"ResendMsg:MsgWrap:");
+            if ([msgMgr respondsToSelector:sel]) {
+                @try {
+                    jj_dbgAppend(@"[+1] use ResendMsg type=%u (copy)", msgType);
+                    ((JJMsgSend2)objc_msgSend)(msgMgr, sel, chatUserName, copyWrap);
+                    sent = YES;
+                } @catch (NSException *e) {
+                    jj_dbgAppend(@"[+1] ResendMsg ex=%@", e.reason);
                 }
-                if (!sent) {
-                    @try {
-                        jj_dbgAppend(@"[+1] fallback AddMsg type=%u", msgType);
-                        [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                        sent = YES;
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
-                    }
-                }
+            }
+        }
+        
+        // 最终回退: AddMsg
+        if (!sent) {
+            @try {
+                jj_dbgAppend(@"[+1] fallback AddMsg type=%u", msgType);
+                [msgMgr AddMsg:chatUserName MsgWrap:copyWrap];
+                sent = YES;
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] AddMsg ex=%@", e.reason);
             }
         }
         

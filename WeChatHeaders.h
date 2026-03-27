@@ -111,6 +111,8 @@
 @interface CMessageMgr : NSObject
 - (void)AddMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)AddEmoticonMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
+- (BOOL)SaveMesVoice:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
+- (void)ResendMsg:(NSString *)userName MsgWrap:(CMessageWrap *)msgWrap;
 - (void)OnAddMessageByReceiver:(id)arg1;
 - (void)onNewSyncAddMessage:(id)arg1;
 - (void)SendTextMessage:(NSString *)text toUsr:(NSString *)usr;

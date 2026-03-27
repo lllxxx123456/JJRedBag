@@ -2488,19 +2488,56 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
                     jj_dbgAppend(@"[+1] voice newExt: data=%d cdn=%d", hasData, hasCdn);
                 }
                 
-                // 6. 同时在消息层设置转发标志
-                @try { [voiceMsg setValue:@(YES) forKey:@"m_bForward"]; } @catch (NSException *e) {}
-                @try { [voiceMsg setValue:@(YES) forKey:@"m_bCdnForward"]; } @catch (NSException *e) {}
+                // 6. 步骤1: AddMsg插入消息到聊天记录（获得m_uiMesLocalID）
+                [msgMgr AddMsg:chatUserName MsgWrap:voiceMsg];
+                unsigned int newLocalID = voiceMsg.m_uiMesLocalID;
+                jj_dbgAppend(@"[+1] voice AddMsg done, localID=%u", newLocalID);
                 
-                // 7. 使用AddRecordMsg发送语音
-                SEL addRecordSel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
-                if ([msgMgr respondsToSelector:addRecordSel]) {
-                    typedef void (*JJAddRecord)(id, SEL, id, id);
-                    ((JJAddRecord)objc_msgSend)(msgMgr, addRecordSel, chatUserName, voiceMsg);
-                    jj_dbgAppend(@"[+1] voice AddRecordMsg done");
+                // 7. 步骤2: SaveMesVoice保存语音文件到本地
+                if (hasData && newLocalID > 0) {
+                    @try {
+                        BOOL saved = [msgMgr SaveMesVoice:chatUserName MsgWrap:voiceMsg];
+                        jj_dbgAppend(@"[+1] voice SaveMesVoice=%d", saved);
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] voice SaveMesVoice ex=%@", e.reason);
+                    }
+                }
+                
+                // 8. 步骤3: 通过BaseUploadVoiceMgr触发上传(ForwardFlag=1)
+                BOOL uploaded = NO;
+                id voiceUploadMgr = jj_getService(objc_getClass("BaseUploadVoiceMgr"));
+                if (voiceUploadMgr && newLocalID > 0) {
+                    SEL addPartSel = NSSelectorFromString(@"AddNewPart:LocalID:n64SvrID:Offset:Len:VoiceTime:CreateTime:EndFlag:CancelFlag:VoiceFormat:ForwardFlag:msgSource:");
+                    if ([voiceUploadMgr respondsToSelector:addPartSel]) {
+                        @try {
+                            unsigned int createTime = voiceMsg.m_uiCreateTime;
+                            unsigned int dataLen = hasData ? (unsigned int)[voiceData length] : 0;
+                            typedef void (*JJAddPart)(id, SEL, id, unsigned int, long long, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, id);
+                            ((JJAddPart)objc_msgSend)(voiceUploadMgr, addPartSel,
+                                chatUserName, newLocalID, (long long)0,
+                                (unsigned int)0, dataLen, voiceTime, createTime,
+                                (unsigned int)1, (unsigned int)0, voiceFormat,
+                                (unsigned int)1, nil);
+                            uploaded = YES;
+                            jj_dbgAppend(@"[+1] voice AddNewPart done (ForwardFlag=1)");
+                        } @catch (NSException *e) {
+                            jj_dbgAppend(@"[+1] voice AddNewPart ex=%@", e.reason);
+                        }
+                    } else {
+                        jj_dbgAppend(@"[+1] voice AddNewPart not found");
+                    }
                 } else {
-                    [msgMgr AddMsg:chatUserName MsgWrap:voiceMsg];
-                    jj_dbgAppend(@"[+1] voice AddMsg fallback done");
+                    jj_dbgAppend(@"[+1] voice uploadMgr=%@ localID=%u", voiceUploadMgr ? @"OK" : @"nil", newLocalID);
+                }
+                
+                // 9. 回退: 如果上传管理器不可用，尝试ResendMsg
+                if (!uploaded && newLocalID > 0) {
+                    @try {
+                        [msgMgr ResendMsg:chatUserName MsgWrap:voiceMsg];
+                        jj_dbgAppend(@"[+1] voice ResendMsg done");
+                    } @catch (NSException *e) {
+                        jj_dbgAppend(@"[+1] voice ResendMsg ex=%@", e.reason);
+                    }
                 }
             } @catch (NSException *e) {
                 jj_dbgAppend(@"[+1] voice ex=%@", e.reason);

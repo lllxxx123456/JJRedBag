@@ -2403,7 +2403,42 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 图片/视频/文件/语音等媒体消息：使用ForwardMsgUtil转发 ===
+        // === 语音消息(type=34)：微信不支持语音转发，需单独处理 ===
+        if (msgType == 34) {
+            jj_dbgAppend(@"[+1] voice type=34, use copy+AddMsg");
+            @try {
+                CMessageWrap *voiceCopy = [msgWrap copy];
+                if (voiceCopy) {
+                    voiceCopy.m_nsFromUsr = selfUserName;
+                    voiceCopy.m_nsToUsr = chatUserName;
+                    voiceCopy.m_uiStatus = 1;
+                    voiceCopy.m_n64MesSvrID = 0;
+                    voiceCopy.m_uiMesLocalID = 0;
+                    voiceCopy.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                    // 设置转发标志
+                    @try { [voiceCopy setValue:@(1) forKey:@"m_uiVoiceForwardFlag"]; } @catch (NSException *e) {}
+                    @try { [voiceCopy setValue:@(YES) forKey:@"m_bForward"]; } @catch (NSException *e) {}
+                    @try { [voiceCopy setValue:@(YES) forKey:@"m_bCdnForward"]; } @catch (NSException *e) {}
+                    
+                    jj_dbgAppend(@"[+1] voice voiceUrl=%@ dtVoice=%lu fwdFlag=%u",
+                        [voiceCopy valueForKey:@"voiceUrl"] ?: @"nil",
+                        (unsigned long)[[voiceCopy valueForKey:@"m_dtVoice"] length],
+                        [[voiceCopy valueForKey:@"m_uiVoiceForwardFlag"] unsignedIntValue]);
+                    
+                    [msgMgr AddMsg:chatUserName MsgWrap:voiceCopy];
+                    jj_dbgAppend(@"[+1] voice AddMsg done");
+                } else {
+                    jj_dbgAppend(@"[+1] voice copy failed");
+                    [self jj_showPlusOneUnsupported:@"语音消息拷贝失败"];
+                }
+            } @catch (NSException *e) {
+                jj_dbgAppend(@"[+1] voice ex=%@", e.reason);
+                [self jj_showPlusOneUnsupported:@"语音消息+1失败"];
+            }
+            return;
+        }
+        
+        // === 图片/视频/文件等媒体消息：使用ForwardMsgUtil转发 ===
         jj_dbgAppend(@"[+1] media type=%u, use ForwardMsgUtil", msgType);
         
         // 获取目标聊天的CContact对象

@@ -2403,33 +2403,104 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 语音消息(type=34)：微信不支持语音转发，需单独处理 ===
+        // === 语音消息(type=34)：从扩展信息获取CDN+本地数据 ===
         if (msgType == 34) {
-            jj_dbgAppend(@"[+1] voice type=34, use copy+AddMsg");
+            jj_dbgAppend(@"[+1] voice type=34");
             @try {
-                CMessageWrap *voiceCopy = [msgWrap copy];
-                if (voiceCopy) {
-                    voiceCopy.m_nsFromUsr = selfUserName;
-                    voiceCopy.m_nsToUsr = chatUserName;
-                    voiceCopy.m_uiStatus = 1;
-                    voiceCopy.m_n64MesSvrID = 0;
-                    voiceCopy.m_uiMesLocalID = 0;
-                    voiceCopy.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                    // 设置转发标志
-                    @try { [voiceCopy setValue:@(1) forKey:@"m_uiVoiceForwardFlag"]; } @catch (NSException *e) {}
-                    @try { [voiceCopy setValue:@(YES) forKey:@"m_bForward"]; } @catch (NSException *e) {}
-                    @try { [voiceCopy setValue:@(YES) forKey:@"m_bCdnForward"]; } @catch (NSException *e) {}
-                    
-                    jj_dbgAppend(@"[+1] voice voiceUrl=%@ dtVoice=%lu fwdFlag=%u",
-                        [voiceCopy valueForKey:@"voiceUrl"] ?: @"nil",
-                        (unsigned long)[[voiceCopy valueForKey:@"m_dtVoice"] length],
-                        [[voiceCopy valueForKey:@"m_uiVoiceForwardFlag"] unsignedIntValue]);
-                    
-                    [msgMgr AddMsg:chatUserName MsgWrap:voiceCopy];
-                    jj_dbgAppend(@"[+1] voice AddMsg done");
+                // 1. 从原始消息扩展信息获取语音属性
+                id origExtInfo = nil;
+                @try { origExtInfo = [msgWrap valueForKey:@"m_extendInfoWithMsgType"]; } @catch (NSException *e) {}
+                
+                unsigned int voiceTime = 0;
+                unsigned int voiceFormat = 0;
+                NSData *voiceData = nil;
+                NSString *origVoiceUrl = nil;
+                NSString *origAesKey = nil;
+                
+                if (origExtInfo) {
+                    @try { voiceTime = [[origExtInfo valueForKey:@"m_uiVoiceTime"] unsignedIntValue]; } @catch (NSException *e) {}
+                    @try { voiceFormat = [[origExtInfo valueForKey:@"m_uiVoiceFormat"] unsignedIntValue]; } @catch (NSException *e) {}
+                    @try { voiceData = [origExtInfo valueForKey:@"m_dtVoice"]; } @catch (NSException *e) {}
+                    @try { origVoiceUrl = [origExtInfo valueForKey:@"voiceUrl"]; } @catch (NSException *e) {}
+                    @try { origAesKey = [origExtInfo valueForKey:@"aesKey"]; } @catch (NSException *e) {}
+                }
+                if (voiceTime == 0) {
+                    @try { voiceTime = [[msgWrap valueForKey:@"m_uiVoiceTime"] unsignedIntValue]; } @catch (NSException *e) {}
+                }
+                jj_dbgAppend(@"[+1] voice extInfo=%@ time=%u fmt=%u dtVoice=%lu url=%@ aesKey=%@",
+                    origExtInfo ? @"OK" : @"nil", voiceTime, voiceFormat,
+                    (unsigned long)[voiceData length],
+                    origVoiceUrl ? [origVoiceUrl substringToIndex:MIN(30, origVoiceUrl.length)] : @"nil",
+                    origAesKey ? @"OK" : @"nil");
+                
+                // 2. 如果扩展信息中没有语音数据，尝试从磁盘读取
+                if (!voiceData || voiceData.length == 0) {
+                    NSString *voicePath = nil;
+                    if ([msgWrap respondsToSelector:@selector(getVoicePath)]) {
+                        voicePath = [msgWrap performSelector:@selector(getVoicePath)];
+                    }
+                    if (!voicePath) {
+                        SEL getAudioSel = NSSelectorFromString(@"getPathOfAudio:");
+                        Class wrapCls = objc_getClass("CMessageWrap");
+                        if (wrapCls && [wrapCls respondsToSelector:getAudioSel]) {
+                            voicePath = ((id(*)(id,SEL,id))objc_msgSend)((id)wrapCls, getAudioSel, msgWrap);
+                        }
+                    }
+                    if (voicePath && [[NSFileManager defaultManager] fileExistsAtPath:voicePath]) {
+                        voiceData = [NSData dataWithContentsOfFile:voicePath];
+                    }
+                    jj_dbgAppend(@"[+1] voice disk path=%@ data=%lu", voicePath ?: @"nil", (unsigned long)[voiceData length]);
+                }
+                
+                // 3. 检查：需要有语音数据或CDN地址
+                BOOL hasData = (voiceData && voiceData.length > 0);
+                BOOL hasCdn = (origVoiceUrl && origVoiceUrl.length > 0);
+                if (!hasData && !hasCdn) {
+                    [self jj_showPlusOneUnsupported:@"语音数据和CDN地址均不可用"];
+                    return;
+                }
+                
+                // 4. 创建新的语音消息
+                CMessageWrap *voiceMsg = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:34];
+                voiceMsg.m_nsFromUsr = selfUserName;
+                voiceMsg.m_nsToUsr = chatUserName;
+                voiceMsg.m_uiStatus = 1;
+                voiceMsg.m_n64MesSvrID = 0;
+                voiceMsg.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+                
+                // 5. 创建语音扩展信息
+                Class extCls = objc_getClass("CExtendInfoOfVoiceMsg");
+                if (extCls) {
+                    id voiceExtInfo = [[extCls alloc] init];
+                    if (hasData) {
+                        [voiceExtInfo setValue:voiceData forKey:@"m_dtVoice"];
+                    }
+                    if (hasCdn) {
+                        [voiceExtInfo setValue:origVoiceUrl forKey:@"voiceUrl"];
+                        if (origAesKey) [voiceExtInfo setValue:origAesKey forKey:@"aesKey"];
+                    }
+                    [voiceExtInfo setValue:@(voiceTime) forKey:@"m_uiVoiceTime"];
+                    [voiceExtInfo setValue:@(voiceFormat) forKey:@"m_uiVoiceFormat"];
+                    [voiceExtInfo setValue:@(1) forKey:@"m_uiVoiceEndFlag"];
+                    [voiceExtInfo setValue:@(0) forKey:@"m_uiVoiceCancelFlag"];
+                    [voiceExtInfo setValue:@(1) forKey:@"m_uiVoiceForwardFlag"];
+                    [voiceMsg setValue:voiceExtInfo forKey:@"m_extendInfoWithMsgType"];
+                    jj_dbgAppend(@"[+1] voice newExt: data=%d cdn=%d", hasData, hasCdn);
+                }
+                
+                // 6. 同时在消息层设置转发标志
+                @try { [voiceMsg setValue:@(YES) forKey:@"m_bForward"]; } @catch (NSException *e) {}
+                @try { [voiceMsg setValue:@(YES) forKey:@"m_bCdnForward"]; } @catch (NSException *e) {}
+                
+                // 7. 使用AddRecordMsg发送语音
+                SEL addRecordSel = NSSelectorFromString(@"AddRecordMsg:MsgWrap:");
+                if ([msgMgr respondsToSelector:addRecordSel]) {
+                    typedef void (*JJAddRecord)(id, SEL, id, id);
+                    ((JJAddRecord)objc_msgSend)(msgMgr, addRecordSel, chatUserName, voiceMsg);
+                    jj_dbgAppend(@"[+1] voice AddRecordMsg done");
                 } else {
-                    jj_dbgAppend(@"[+1] voice copy failed");
-                    [self jj_showPlusOneUnsupported:@"语音消息拷贝失败"];
+                    [msgMgr AddMsg:chatUserName MsgWrap:voiceMsg];
+                    jj_dbgAppend(@"[+1] voice AddMsg fallback done");
                 }
             } @catch (NSException *e) {
                 jj_dbgAppend(@"[+1] voice ex=%@", e.reason);

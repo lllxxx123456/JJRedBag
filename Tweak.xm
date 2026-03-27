@@ -7,6 +7,8 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+#define kJJUTTypeGIF CFSTR("com.compuserve.gif")
+
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
 static id jj_cachedPayLogicMgr = nil;
 static id jj_cachedServiceCenter = nil;
@@ -1432,9 +1434,123 @@ static BOOL jj_isEmoticonGIF(CMessageWrap *msgWrap, NSData *rawData) {
     return NO;
 }
 
-static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSString *fromUser, NSString *toUser);
+// 获取表情原始数据（通过多种方式尝试）
+static NSData *jj_getEmoticonData(CMessageWrap *msgWrap) {
+    if (!msgWrap) return nil;
+    // 1. 直接从消息获取
+    @try {
+        NSData *data = msgWrap.m_dtEmoticonData;
+        if (data && data.length > 0) return data;
+    } @catch (NSException *e) {}
+    // 2. 通过MD5从CEmoticonMgr获取
+    NSString *md5 = msgWrap.m_nsEmoticonMD5;
+    if (md5 && md5.length > 0) {
+        @try {
+            CEmoticonMgr *emoticonMgr = jj_getService(objc_getClass("CEmoticonMgr"));
+            if (emoticonMgr && [emoticonMgr respondsToSelector:@selector(getEmoticonWrapByMd5:)]) {
+                CEmoticonWrap *wrap = [emoticonMgr getEmoticonWrapByMd5:md5];
+                if (wrap && wrap.m_imageData && wrap.m_imageData.length > 0) return wrap.m_imageData;
+            }
+        } @catch (NSException *e) {}
+        // 3. 通过MD5搜索文件系统
+        NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+        NSArray *exts = @[@"", @".gif", @".png", @".jpg"];
+        NSArray *dirs = @[
+            [docPath stringByAppendingPathComponent:@"../tmp/emoticonTmp"],
+            [cachePath stringByAppendingPathComponent:@"emoticonTmp"],
+            [docPath stringByAppendingPathComponent:@"Emoticon"],
+            [cachePath stringByAppendingPathComponent:@"Emoticon"],
+        ];
+        for (NSString *dir in dirs) {
+            for (NSString *ext in exts) {
+                NSString *path = [dir stringByAppendingPathComponent:[md5 stringByAppendingString:ext]];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+                    NSData *d = [NSData dataWithContentsOfFile:path];
+                    if (d && d.length > 0) return d;
+                }
+            }
+        }
+    }
+    // 4. 通过文件路径属性
+    @try {
+        NSString *imgPath = msgWrap.m_nsImgPath;
+        if (imgPath.length > 0) { NSData *d = [NSData dataWithContentsOfFile:imgPath]; if (d.length > 0) return d; }
+        NSString *thumbPath = msgWrap.m_nsThumbImgPath;
+        if (thumbPath.length > 0) { NSData *d = [NSData dataWithContentsOfFile:thumbPath]; if (d.length > 0) return d; }
+    } @catch (NSException *e) {}
+    // 5. 通过getEmoticonImageByMD5获取静态UIImage（最后手段）
+    if (md5 && md5.length > 0) {
+        @try {
+            Class cls = objc_getClass("CEmoticonMgr");
+            if ([cls respondsToSelector:@selector(getEmoticonImageByMD5:)]) {
+                UIImage *img = [cls getEmoticonImageByMD5:md5];
+                if (img) return UIImagePNGRepresentation(img);
+            }
+        } @catch (NSException *e) {}
+    }
+    return nil;
+}
 
-// 缩放并发送表情包：克隆原始消息（和+1完全一样），修改XML中的width/height实现缩放
+// 缩放静态图片
+static NSData *jj_scaleStaticImage(NSData *imageData, CGFloat scaleFactor) {
+    if (!imageData) return nil;
+    UIImage *image = [UIImage imageWithData:imageData];
+    if (!image) return nil;
+    CGSize newSize = CGSizeMake(image.size.width * scaleFactor, image.size.height * scaleFactor);
+    if (newSize.width < 10) newSize.width = 10;
+    if (newSize.height < 10) newSize.height = 10;
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
+    [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    if (!scaledImage) return nil;
+    const unsigned char *bytes = (const unsigned char *)imageData.bytes;
+    BOOL isPNG = (imageData.length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47);
+    return isPNG ? UIImagePNGRepresentation(scaledImage) : UIImageJPEGRepresentation(scaledImage, 0.9);
+}
+
+// 缩放GIF动图（逐帧缩放）
+static NSData *jj_scaleGIFImage(NSData *gifData, CGFloat scaleFactor) {
+    if (!gifData) return nil;
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)gifData, NULL);
+    if (!source) return nil;
+    size_t frameCount = CGImageSourceGetCount(source);
+    if (frameCount == 0) { CFRelease(source); return nil; }
+    NSMutableData *resultData = [NSMutableData data];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithData(
+        (__bridge CFMutableDataRef)resultData, kJJUTTypeGIF, frameCount, NULL);
+    if (!destination) { CFRelease(source); return nil; }
+    NSDictionary *gifProperties = (__bridge_transfer NSDictionary *)CGImageSourceCopyProperties(source, NULL);
+    if (gifProperties) CGImageDestinationSetProperties(destination, (__bridge CFDictionaryRef)gifProperties);
+    for (size_t i = 0; i < frameCount; i++) {
+        CGImageRef frameImage = CGImageSourceCreateImageAtIndex(source, i, NULL);
+        if (!frameImage) continue;
+        size_t newW = (size_t)(CGImageGetWidth(frameImage) * scaleFactor);
+        size_t newH = (size_t)(CGImageGetHeight(frameImage) * scaleFactor);
+        if (newW < 10) newW = 10; if (newH < 10) newH = 10;
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef ctx = CGBitmapContextCreate(NULL, newW, newH, 8, newW * 4, cs, kCGImageAlphaPremultipliedLast);
+        CGColorSpaceRelease(cs);
+        if (ctx) {
+            CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
+            CGContextDrawImage(ctx, CGRectMake(0, 0, newW, newH), frameImage);
+            CGImageRef scaledFrame = CGBitmapContextCreateImage(ctx);
+            CGContextRelease(ctx);
+            if (scaledFrame) {
+                NSDictionary *frameProps = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, i, NULL);
+                CGImageDestinationAddImage(destination, scaledFrame, (__bridge CFDictionaryRef)frameProps);
+                CGImageRelease(scaledFrame);
+            }
+        }
+        CGImageRelease(frameImage);
+    }
+    BOOL success = CGImageDestinationFinalize(destination);
+    CFRelease(destination); CFRelease(source);
+    return success ? resultData : nil;
+}
+
+// 缩放并发送表情包：获取原始数据 → 像素缩放 → 作为新表情发送
 static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     NSString *toUserName = [jj_currentChatUserName copy];
     CMessageWrap *origMsgWrap = jj_currentEmoticonMsgWrap;
@@ -1444,44 +1560,52 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     @try {
         CMessageMgr *msgMgr = jj_getService(objc_getClass("CMessageMgr"));
         if (!msgMgr) return;
-        
         CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
         NSString *selfUserName = [[contactMgr getSelfContact] m_nsUsrName];
         
-        // 和+1复读完全相同：克隆原始消息
-        CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(origMsgWrap, selfUserName, toUserName);
-        if (!newWrap) return;
+        // 获取原始表情数据
+        NSData *origData = jj_getEmoticonData(origMsgWrap);
+        if (!origData || origData.length == 0) return;
         
-        // 修改XML中的width/height实现缩放
-        NSString *content = newWrap.m_nsContent;
-        if (content && content.length > 0) {
-            NSMutableString *newContent = [content mutableCopy];
-            
-            // 替换 cdnimgwidth="xxx" 为缩放后的值
-            NSRegularExpression *wRegex = [NSRegularExpression regularExpressionWithPattern:@"cdnimgwidth=\"(\\d+)\"" options:0 error:nil];
-            NSTextCheckingResult *wMatch = [wRegex firstMatchInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
-            if (wMatch && wMatch.numberOfRanges > 1) {
-                unsigned int origW = [[newContent substringWithRange:[wMatch rangeAtIndex:1]] intValue];
-                unsigned int newW = (unsigned int)(origW * scaleFactor);
-                if (newW < 10) newW = 10;
-                [newContent replaceCharactersInRange:[wMatch range] withString:[NSString stringWithFormat:@"cdnimgwidth=\"%u\"", newW]];
-            }
-            
-            // 替换 cdnimgheight="xxx" 为缩放后的值
-            NSRegularExpression *hRegex = [NSRegularExpression regularExpressionWithPattern:@"cdnimgheight=\"(\\d+)\"" options:0 error:nil];
-            NSTextCheckingResult *hMatch = [hRegex firstMatchInString:newContent options:0 range:NSMakeRange(0, newContent.length)];
-            if (hMatch && hMatch.numberOfRanges > 1) {
-                unsigned int origH = [[newContent substringWithRange:[hMatch rangeAtIndex:1]] intValue];
-                unsigned int newH = (unsigned int)(origH * scaleFactor);
-                if (newH < 10) newH = 10;
-                [newContent replaceCharactersInRange:[hMatch range] withString:[NSString stringWithFormat:@"cdnimgheight=\"%u\"", newH]];
-            }
-            
-            newWrap.m_nsContent = newContent;
+        // 判断是否GIF并缩放
+        BOOL isGIF = jj_isGIFData(origData);
+        if (!isGIF) {
+            CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)origData, NULL);
+            if (src) { if (CGImageSourceGetCount(src) > 1) isGIF = YES; CFRelease(src); }
         }
         
-        [msgMgr AddEmoticonMsg:toUserName MsgWrap:newWrap];
+        NSData *scaledData = nil;
+        if (isGIF) {
+            scaledData = jj_scaleGIFImage(origData, scaleFactor);
+            if (!scaledData || scaledData.length == 0) scaledData = jj_scaleStaticImage(origData, scaleFactor);
+        } else {
+            scaledData = jj_scaleStaticImage(origData, scaleFactor);
+        }
+        if (!scaledData || scaledData.length == 0) return;
         
+        // 用emoticonMsgForImageData发送全新表情（不带原MD5，微信会重新处理）
+        Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
+        BOOL sent = NO;
+        if (emoticonMgrClass && [emoticonMgrClass respondsToSelector:@selector(emoticonMsgForImageData:errorMsg:)]) {
+            NSString *errorMsg = nil;
+            CMessageWrap *newMsgWrap = [emoticonMgrClass emoticonMsgForImageData:scaledData errorMsg:&errorMsg];
+            if (newMsgWrap) {
+                newMsgWrap.m_nsToUsr = toUserName;
+                newMsgWrap.m_nsFromUsr = selfUserName;
+                [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+                sent = YES;
+            }
+        }
+        // 回退：手动构建
+        if (!sent) {
+            CMessageWrap *newMsgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
+            newMsgWrap.m_nsFromUsr = selfUserName;
+            newMsgWrap.m_nsToUsr = toUserName;
+            newMsgWrap.m_uiStatus = 1;
+            newMsgWrap.m_dtEmoticonData = scaledData;
+            newMsgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
+            [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
+        }
     } @catch (NSException *exception) {}
     
     // 清理

@@ -308,6 +308,8 @@
 
 @interface CEmoticonMgr : NSObject
 + (id)GetEmoticonByMD5:(id)md5;
++ (id)getEmoticonImageByMD5:(id)md5;
++ (id)emoticonMsgForImageData:(id)data errorMsg:(id *)errorMsg;
 - (id)getEmoticonWrapByMd5:(id)md5;
 @end
 

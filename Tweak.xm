@@ -1730,10 +1730,9 @@ static NSData *jj_scaleGIFImage(NSData *gifData, CGFloat scaleFactor) {
     return success ? resultData : nil;
 }
 
-// 统一发送缩放后的表情数据（GIF或静态图均走此路径）
-// 核心策略：不复用原始MD5，强制微信将缩放后的数据作为全新表情处理
-static void jj_sendScaledEmoticonData(NSData *scaledData, NSString *toUserName, BOOL isGIF) {
-    if (!scaledData || scaledData.length == 0 || !toUserName) return;
+// 发送缩放后的表情：克隆原始消息，替换表情数据为缩放后的数据，和+1复读完全相同的发送方式
+static void jj_sendScaledEmoticonData(NSData *scaledData, NSString *toUserName, CMessageWrap *origMsgWrap) {
+    if (!scaledData || scaledData.length == 0 || !toUserName || !origMsgWrap) return;
     
     CMessageMgr *msgMgr = jj_getService(objc_getClass("CMessageMgr"));
     if (!msgMgr) return;
@@ -1741,34 +1740,16 @@ static void jj_sendScaledEmoticonData(NSData *scaledData, NSString *toUserName, 
     CContactMgr *contactMgr = jj_getService(objc_getClass("CContactMgr"));
     NSString *selfUserName = [[contactMgr getSelfContact] m_nsUsrName];
     
-    // 方式1：通过CEmoticonMgr创建消息（推荐，微信会自动处理上传和缓存）
-    BOOL sent = NO;
-    Class emoticonMgrClass = objc_getClass("CEmoticonMgr");
-    if (emoticonMgrClass && [emoticonMgrClass respondsToSelector:@selector(emoticonMsgForImageData:errorMsg:)]) {
-        NSString *errorMsg = nil;
-        CMessageWrap *newMsgWrap = [emoticonMgrClass emoticonMsgForImageData:scaledData errorMsg:&errorMsg];
-        if (newMsgWrap) {
-            newMsgWrap.m_nsToUsr = toUserName;
-            newMsgWrap.m_nsFromUsr = selfUserName;
-            // 不设置m_nsEmoticonMD5，让微信根据新数据重新计算
-            [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
-            sent = YES;
-        }
-    }
+    // 和+1复读完全相同：克隆原始消息的所有属性
+    CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(origMsgWrap, selfUserName, toUserName);
+    if (!newWrap) return;
     
-    // 方式2：手动构建消息（兜底）
-    if (!sent) {
-        CMessageWrap *newMsgWrap = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:47];
-        newMsgWrap.m_nsFromUsr = selfUserName;
-        newMsgWrap.m_nsToUsr = toUserName;
-        newMsgWrap.m_uiMessageType = 47;
-        newMsgWrap.m_uiStatus = 1;
-        newMsgWrap.m_dtEmoticonData = scaledData;
-        // 不设置m_nsEmoticonMD5，避免微信用缓存覆盖
-        newMsgWrap.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-        newMsgWrap.m_uiMesLocalID = newMsgWrap.m_uiCreateTime;
-        [msgMgr AddEmoticonMsg:toUserName MsgWrap:newMsgWrap];
-    }
+    // 替换表情数据为缩放后的数据
+    newWrap.m_dtEmoticonData = scaledData;
+    // 清除原始MD5，让微信根据新数据重新处理
+    newWrap.m_nsEmoticonMD5 = nil;
+    
+    [msgMgr AddEmoticonMsg:toUserName MsgWrap:newWrap];
 }
 
 // 缩放并发送表情包到当前聊天
@@ -1809,14 +1790,15 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
             // 如果GIF缩放失败，降级为静态图
             if (!scaledData || scaledData.length == 0) {
                 scaledData = jj_scaleStaticImage(origData, scaleFactor);
+                isGIF = NO; // 降级后不再是GIF
             }
         } else {
             // 静态图：直接像素缩放
             scaledData = jj_scaleStaticImage(origData, scaleFactor);
         }
         
-        // 发送缩放后的数据
-        jj_sendScaledEmoticonData(scaledData, toUserName, isGIF);
+        // 发送缩放后的数据（和+1复读相同方式：克隆原始消息，替换表情数据）
+        jj_sendScaledEmoticonData(scaledData, toUserName, origMsgWrap);
         
     } @catch (NSException *exception) {
         // 静默处理

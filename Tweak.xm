@@ -1357,6 +1357,7 @@ static void jj_stopAllBackgroundModes(void) {
 
 static CMessageWrap *jj_currentEmoticonMsgWrap = nil;
 static NSString *jj_currentChatUserName = nil;
+static UIView *jj_currentSourceView = nil;
 
 // 从响应链查找BaseMsgContentViewController获取当前聊天用户名
 static NSString *jj_getChatUserNameFromResponderChain(UIView *fromView) {
@@ -1488,9 +1489,6 @@ static void jj_scaleAndSendEmoticon(CGFloat scaleFactor, UIView *sourceView) {
     jj_currentChatUserName = nil;
     jj_currentSourceView = nil;
 }
-
-// 保存sourceView的全局变量
-static UIView *jj_currentSourceView = nil;
 
 // 显示缩放选择菜单
 static void jj_showScaleActionSheet(void) {

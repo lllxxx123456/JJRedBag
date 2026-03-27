@@ -1730,6 +1730,8 @@ static NSData *jj_scaleGIFImage(NSData *gifData, CGFloat scaleFactor) {
     return success ? resultData : nil;
 }
 
+static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSString *fromUser, NSString *toUser);
+
 // 发送缩放后的表情：克隆原始消息，替换表情数据为缩放后的数据，和+1复读完全相同的发送方式
 static void jj_sendScaledEmoticonData(NSData *scaledData, NSString *toUserName, CMessageWrap *origMsgWrap) {
     if (!scaledData || scaledData.length == 0 || !toUserName || !origMsgWrap) return;

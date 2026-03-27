@@ -357,6 +357,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         }
         case JJSubPageEmoticon: {
             NSInteger count = 2; // +1开关 + 表情缩放开关
+            if (manager.plusOneEnabled) count += 5; // 5个子开关：文字/表情包/照片/视频/文件
             if (manager.emoticonScaleEnabled) count++; // 表情缓存
             return count;
         }
@@ -586,17 +587,44 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
 }
 
 - (void)configureEmoticon:(UITableViewCell *)cell row:(NSInteger)row mgr:(JJRedBagManager *)m {
-    if (row == 0) {
+    NSInteger r = 0;
+    // row 0: +1总开关
+    if (row == r) {
         cell.textLabel.text = @"\u6d88\u606f+1\uff08\u590d\u8bfb\u673a\uff09";
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.plusOneEnabled; sw.tag = 610;
         [sw addTarget:self action:@selector(plusOneSwitchChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 1) {
+        return;
+    }
+    r++;
+    // +1子开关（仅在总开关开启时显示）
+    if (m.plusOneEnabled) {
+        NSArray *subTitles = @[@"  \u251c \u6587\u5b57+1", @"  \u251c \u8868\u60c5\u5305+1", @"  \u251c \u7167\u7247+1", @"  \u251c \u89c6\u9891+1", @"  \u2514 \u6587\u4ef6+1"];
+        NSArray *subTags = @[@(611), @(612), @(613), @(614), @(615)];
+        NSArray *subValues = @[@(m.plusOneTextEnabled), @(m.plusOneEmoticonEnabled), @(m.plusOneImageEnabled), @(m.plusOneVideoEnabled), @(m.plusOneFileEnabled)];
+        for (NSInteger i = 0; i < 5; i++) {
+            if (row == r + i) {
+                cell.textLabel.text = subTitles[i];
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                UISwitch *sw = [[UISwitch alloc] init]; sw.on = [subValues[i] boolValue]; sw.tag = [subTags[i] integerValue];
+                [sw addTarget:self action:@selector(plusOneSubSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                return;
+            }
+        }
+        r += 5;
+    }
+    // 表情缩放开关
+    if (row == r) {
         cell.textLabel.text = @"\u8868\u60c5\u5305\u7f29\u653e";
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.emoticonScaleEnabled; sw.tag = 600;
         [sw addTarget:self action:@selector(emoticonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 2) {
+        return;
+    }
+    r++;
+    // 表情缓存（仅在表情缩放开启时显示）
+    if (m.emoticonScaleEnabled && row == r) {
         NSString *cacheDir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"JJEmoticonCache"];
         unsigned long long totalSize = 0;
         NSFileManager *fm = [NSFileManager defaultManager];
@@ -774,12 +802,22 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
 
 - (void)plusOneSwitchChanged:(UISwitch *)sender {
     JJRedBagManager *m = [JJRedBagManager sharedManager]; m.plusOneEnabled = sender.on; [m saveSettings]; [self.tableView reloadData];
-    if (sender.on && ![[NSUserDefaults standardUserDefaults] boolForKey:@"jj_shown_plusone_alert"]) {
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"jj_shown_plusone_alert"];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u6d88\u606f+1\uff08\u590d\u8bfb\u673a\uff09" message:@"\u5f00\u542f\u540e\uff0c\u957f\u6309\u804a\u5929\u6d88\u606f\u65f6\u83dc\u5355\u4e2d\u4f1a\u51fa\u73b0\u300c+1\u300d\u6309\u94ae\u3002\n\n\u70b9\u51fb\u540e\u5c06\u81ea\u52a8\u53d1\u9001\u4e00\u6761\u4e0e\u539f\u6d88\u606f\u76f8\u540c\u7684\u5185\u5bb9\u3002\n\n\u652f\u6301\uff1a\u6587\u5b57\u3001\u8868\u60c5\u5305\u7b49\u6d88\u606f\u7c7b\u578b\u3002" preferredStyle:UIAlertControllerStyleAlert];
+    if (sender.on && ![[NSUserDefaults standardUserDefaults] boolForKey:@"jj_shown_plusone_alert2"]) {
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"jj_shown_plusone_alert2"];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u6d88\u606f+1\uff08\u590d\u8bfb\u673a\uff09" message:@"\u5f00\u542f\u540e\uff0c\u957f\u6309\u804a\u5929\u6d88\u606f\u65f6\u83dc\u5355\u4e2d\u4f1a\u51fa\u73b0\u300c+1\u300d\u6309\u94ae\u3002\n\n\u53ef\u5728\u4e0b\u65b9\u5b50\u5f00\u5173\u4e2d\u9009\u62e9\u542f\u7528\u54ea\u4e9b\u6d88\u606f\u7c7b\u578b\u7684+1\u529f\u80fd\u3002\n\n\u5f00\u5173\u5207\u6362\u540e\u65e0\u9700\u91cd\u542f\u5fae\u4fe1\uff0c\u7acb\u5373\u751f\u6548\u3002" preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
     }
+}
+
+- (void)plusOneSubSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *m = [JJRedBagManager sharedManager];
+    if (sender.tag == 611) m.plusOneTextEnabled = sender.on;
+    if (sender.tag == 612) m.plusOneEmoticonEnabled = sender.on;
+    if (sender.tag == 613) m.plusOneImageEnabled = sender.on;
+    if (sender.tag == 614) m.plusOneVideoEnabled = sender.on;
+    if (sender.tag == 615) m.plusOneFileEnabled = sender.on;
+    [m saveSettings]; [self.tableView reloadData];
 }
 
 - (void)emoticonSwitchChanged:(UISwitch *)sender {

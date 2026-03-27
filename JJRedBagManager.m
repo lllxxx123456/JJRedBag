@@ -65,6 +65,11 @@
         
         // 消息+1(复读机)默认设置
         _plusOneEnabled = NO;
+        _plusOneTextEnabled = YES;
+        _plusOneEmoticonEnabled = YES;
+        _plusOneImageEnabled = YES;
+        _plusOneVideoEnabled = YES;
+        _plusOneFileEnabled = YES;
         
         // 表情包缩放默认设置
         _emoticonScaleEnabled = NO;
@@ -138,6 +143,11 @@
     
     // 消息+1(复读机)
     settings[@"plusOneEnabled"] = @(self.plusOneEnabled);
+    settings[@"plusOneTextEnabled"] = @(self.plusOneTextEnabled);
+    settings[@"plusOneEmoticonEnabled"] = @(self.plusOneEmoticonEnabled);
+    settings[@"plusOneImageEnabled"] = @(self.plusOneImageEnabled);
+    settings[@"plusOneVideoEnabled"] = @(self.plusOneVideoEnabled);
+    settings[@"plusOneFileEnabled"] = @(self.plusOneFileEnabled);
     
     // 表情包缩放
     settings[@"emoticonScaleEnabled"] = @(self.emoticonScaleEnabled);
@@ -216,6 +226,11 @@
         
         // 消息+1(复读机)
         self.plusOneEnabled = [settings[@"plusOneEnabled"] boolValue];
+        self.plusOneTextEnabled = settings[@"plusOneTextEnabled"] ? [settings[@"plusOneTextEnabled"] boolValue] : YES;
+        self.plusOneEmoticonEnabled = settings[@"plusOneEmoticonEnabled"] ? [settings[@"plusOneEmoticonEnabled"] boolValue] : YES;
+        self.plusOneImageEnabled = settings[@"plusOneImageEnabled"] ? [settings[@"plusOneImageEnabled"] boolValue] : YES;
+        self.plusOneVideoEnabled = settings[@"plusOneVideoEnabled"] ? [settings[@"plusOneVideoEnabled"] boolValue] : YES;
+        self.plusOneFileEnabled = settings[@"plusOneFileEnabled"] ? [settings[@"plusOneFileEnabled"] boolValue] : YES;
         
         // 表情包缩放
         self.emoticonScaleEnabled = [settings[@"emoticonScaleEnabled"] boolValue];

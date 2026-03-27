@@ -77,7 +77,12 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 @property (nonatomic, strong) NSMutableArray *receiveGroups;        // 收款群聊列表
 
 // ========== 消息+1(复读机)功能 ==========
-@property (nonatomic, assign) BOOL plusOneEnabled;                  // 消息+1(复读机)开关
+@property (nonatomic, assign) BOOL plusOneEnabled;                  // 消息+1(复读机)总开关
+@property (nonatomic, assign) BOOL plusOneTextEnabled;              // 文字+1
+@property (nonatomic, assign) BOOL plusOneEmoticonEnabled;          // 表情包+1
+@property (nonatomic, assign) BOOL plusOneImageEnabled;             // 照片+1
+@property (nonatomic, assign) BOOL plusOneVideoEnabled;             // 视频+1
+@property (nonatomic, assign) BOOL plusOneFileEnabled;              // 文件+1
 
 // ========== 表情包缩放功能 ==========
 @property (nonatomic, assign) BOOL emoticonScaleEnabled;            // 表情包缩放功能开关

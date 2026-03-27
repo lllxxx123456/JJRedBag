@@ -2256,6 +2256,24 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     
     if (!manager.plusOneEnabled) return result;
     
+    // 根据消息类型检查对应子开关
+    CMessageWrap *msgWrap = nil;
+    if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
+        msgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
+    }
+    if (!msgWrap && [self respondsToSelector:@selector(getMessageWrap)]) {
+        msgWrap = [self performSelector:@selector(getMessageWrap)];
+    }
+    if (msgWrap) {
+        unsigned int msgType = msgWrap.m_uiMessageType;
+        if (msgType == 1 && !manager.plusOneTextEnabled) return result;
+        if (msgType == 47 && !manager.plusOneEmoticonEnabled) return result;
+        if (msgType == 3 && !manager.plusOneImageEnabled) return result;
+        if (msgType == 43 && !manager.plusOneVideoEnabled) return result;
+        if (msgType == 49 && !manager.plusOneFileEnabled) return result;
+        if (msgType == 34) return result; // 语音不支持+1
+    }
+    
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
     id plusOneItem = nil;
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
@@ -2403,149 +2421,6 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
             return;
         }
         
-        // === 语音消息(type=34)：从扩展信息获取CDN+本地数据 ===
-        if (msgType == 34) {
-            jj_dbgAppend(@"[+1] voice type=34");
-            @try {
-                // 1. 从原始消息扩展信息获取语音属性
-                id origExtInfo = nil;
-                @try { origExtInfo = [msgWrap valueForKey:@"m_extendInfoWithMsgType"]; } @catch (NSException *e) {}
-                
-                unsigned int voiceTime = 0;
-                unsigned int voiceFormat = 0;
-                NSData *voiceData = nil;
-                NSString *origVoiceUrl = nil;
-                NSString *origAesKey = nil;
-                
-                if (origExtInfo) {
-                    @try { voiceTime = [[origExtInfo valueForKey:@"m_uiVoiceTime"] unsignedIntValue]; } @catch (NSException *e) {}
-                    @try { voiceFormat = [[origExtInfo valueForKey:@"m_uiVoiceFormat"] unsignedIntValue]; } @catch (NSException *e) {}
-                    @try { voiceData = [origExtInfo valueForKey:@"m_dtVoice"]; } @catch (NSException *e) {}
-                    @try { origVoiceUrl = [origExtInfo valueForKey:@"voiceUrl"]; } @catch (NSException *e) {}
-                    @try { origAesKey = [origExtInfo valueForKey:@"aesKey"]; } @catch (NSException *e) {}
-                }
-                if (voiceTime == 0) {
-                    @try { voiceTime = [[msgWrap valueForKey:@"m_uiVoiceTime"] unsignedIntValue]; } @catch (NSException *e) {}
-                }
-                jj_dbgAppend(@"[+1] voice extInfo=%@ time=%u fmt=%u dtVoice=%lu url=%@ aesKey=%@",
-                    origExtInfo ? @"OK" : @"nil", voiceTime, voiceFormat,
-                    (unsigned long)[voiceData length],
-                    origVoiceUrl ? [origVoiceUrl substringToIndex:MIN(30, origVoiceUrl.length)] : @"nil",
-                    origAesKey ? @"OK" : @"nil");
-                
-                // 2. 如果扩展信息中没有语音数据，尝试从磁盘读取
-                if (!voiceData || voiceData.length == 0) {
-                    NSString *voicePath = nil;
-                    if ([msgWrap respondsToSelector:@selector(getVoicePath)]) {
-                        voicePath = [msgWrap performSelector:@selector(getVoicePath)];
-                    }
-                    if (!voicePath) {
-                        SEL getAudioSel = NSSelectorFromString(@"getPathOfAudio:");
-                        Class wrapCls = objc_getClass("CMessageWrap");
-                        if (wrapCls && [wrapCls respondsToSelector:getAudioSel]) {
-                            voicePath = ((id(*)(id,SEL,id))objc_msgSend)((id)wrapCls, getAudioSel, msgWrap);
-                        }
-                    }
-                    if (voicePath && [[NSFileManager defaultManager] fileExistsAtPath:voicePath]) {
-                        voiceData = [NSData dataWithContentsOfFile:voicePath];
-                    }
-                    jj_dbgAppend(@"[+1] voice disk path=%@ data=%lu", voicePath ?: @"nil", (unsigned long)[voiceData length]);
-                }
-                
-                // 3. 检查：需要有语音数据或CDN地址
-                BOOL hasData = (voiceData && voiceData.length > 0);
-                BOOL hasCdn = (origVoiceUrl && origVoiceUrl.length > 0);
-                if (!hasData && !hasCdn) {
-                    [self jj_showPlusOneUnsupported:@"语音数据和CDN地址均不可用"];
-                    return;
-                }
-                
-                // 4. 创建新的语音消息
-                CMessageWrap *voiceMsg = [[objc_getClass("CMessageWrap") alloc] initWithMsgType:34];
-                voiceMsg.m_nsFromUsr = selfUserName;
-                voiceMsg.m_nsToUsr = chatUserName;
-                voiceMsg.m_uiStatus = 1;
-                voiceMsg.m_n64MesSvrID = 0;
-                voiceMsg.m_uiCreateTime = (unsigned int)[[NSDate date] timeIntervalSince1970];
-                
-                // 5. 创建语音扩展信息
-                Class extCls = objc_getClass("CExtendInfoOfVoiceMsg");
-                if (extCls) {
-                    id voiceExtInfo = [[extCls alloc] init];
-                    if (hasData) {
-                        [voiceExtInfo setValue:voiceData forKey:@"m_dtVoice"];
-                    }
-                    if (hasCdn) {
-                        [voiceExtInfo setValue:origVoiceUrl forKey:@"voiceUrl"];
-                        if (origAesKey) [voiceExtInfo setValue:origAesKey forKey:@"aesKey"];
-                    }
-                    [voiceExtInfo setValue:@(voiceTime) forKey:@"m_uiVoiceTime"];
-                    [voiceExtInfo setValue:@(voiceFormat) forKey:@"m_uiVoiceFormat"];
-                    [voiceExtInfo setValue:@(1) forKey:@"m_uiVoiceEndFlag"];
-                    [voiceExtInfo setValue:@(0) forKey:@"m_uiVoiceCancelFlag"];
-                    [voiceExtInfo setValue:@(1) forKey:@"m_uiVoiceForwardFlag"];
-                    [voiceMsg setValue:voiceExtInfo forKey:@"m_extendInfoWithMsgType"];
-                    jj_dbgAppend(@"[+1] voice newExt: data=%d cdn=%d", hasData, hasCdn);
-                }
-                
-                // 6. 步骤1: AddMsg插入消息到聊天记录（获得m_uiMesLocalID）
-                [msgMgr AddMsg:chatUserName MsgWrap:voiceMsg];
-                unsigned int newLocalID = voiceMsg.m_uiMesLocalID;
-                jj_dbgAppend(@"[+1] voice AddMsg done, localID=%u", newLocalID);
-                
-                // 7. 步骤2: SaveMesVoice保存语音文件到本地
-                if (hasData && newLocalID > 0) {
-                    @try {
-                        BOOL saved = [msgMgr SaveMesVoice:chatUserName MsgWrap:voiceMsg];
-                        jj_dbgAppend(@"[+1] voice SaveMesVoice=%d", saved);
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] voice SaveMesVoice ex=%@", e.reason);
-                    }
-                }
-                
-                // 8. 步骤3: 通过BaseUploadVoiceMgr触发上传(ForwardFlag=1)
-                BOOL uploaded = NO;
-                id voiceUploadMgr = jj_getService(objc_getClass("BaseUploadVoiceMgr"));
-                if (voiceUploadMgr && newLocalID > 0) {
-                    SEL addPartSel = NSSelectorFromString(@"AddNewPart:LocalID:n64SvrID:Offset:Len:VoiceTime:CreateTime:EndFlag:CancelFlag:VoiceFormat:ForwardFlag:msgSource:");
-                    if ([voiceUploadMgr respondsToSelector:addPartSel]) {
-                        @try {
-                            unsigned int createTime = voiceMsg.m_uiCreateTime;
-                            unsigned int dataLen = hasData ? (unsigned int)[voiceData length] : 0;
-                            typedef void (*JJAddPart)(id, SEL, id, unsigned int, long long, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, id);
-                            ((JJAddPart)objc_msgSend)(voiceUploadMgr, addPartSel,
-                                chatUserName, newLocalID, (long long)0,
-                                (unsigned int)0, dataLen, voiceTime, createTime,
-                                (unsigned int)1, (unsigned int)0, voiceFormat,
-                                (unsigned int)1, nil);
-                            uploaded = YES;
-                            jj_dbgAppend(@"[+1] voice AddNewPart done (ForwardFlag=1)");
-                        } @catch (NSException *e) {
-                            jj_dbgAppend(@"[+1] voice AddNewPart ex=%@", e.reason);
-                        }
-                    } else {
-                        jj_dbgAppend(@"[+1] voice AddNewPart not found");
-                    }
-                } else {
-                    jj_dbgAppend(@"[+1] voice uploadMgr=%@ localID=%u", voiceUploadMgr ? @"OK" : @"nil", newLocalID);
-                }
-                
-                // 9. 回退: 如果上传管理器不可用，尝试ResendMsg
-                if (!uploaded && newLocalID > 0) {
-                    @try {
-                        [msgMgr ResendMsg:chatUserName MsgWrap:voiceMsg];
-                        jj_dbgAppend(@"[+1] voice ResendMsg done");
-                    } @catch (NSException *e) {
-                        jj_dbgAppend(@"[+1] voice ResendMsg ex=%@", e.reason);
-                    }
-                }
-            } @catch (NSException *e) {
-                jj_dbgAppend(@"[+1] voice ex=%@", e.reason);
-                [self jj_showPlusOneUnsupported:@"语音消息+1失败"];
-            }
-            return;
-        }
-        
         // === 图片/视频/文件等媒体消息：使用ForwardMsgUtil转发 ===
         jj_dbgAppend(@"[+1] media type=%u, use ForwardMsgUtil", msgType);
         
@@ -2646,7 +2521,7 @@ static CMessageWrap *jj_clonePlusOneMessageWrap(CMessageWrap *sourceMsgWrap, NSS
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     
     // 检查+1是否已由父类hook添加，避免重复
-    if (manager.plusOneEnabled) {
+    if (manager.plusOneEnabled && manager.plusOneEmoticonEnabled) {
         BOOL hasPlusOne = NO;
         for (id item in newItems) {
             if ([item respondsToSelector:@selector(title)] && [[item title] isEqualToString:@"+1"]) {

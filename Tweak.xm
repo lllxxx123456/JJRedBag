@@ -2488,21 +2488,28 @@ static WKWebView *jj_getWebView(UIViewController *vc) {
     return nil;
 }
 
-// 判断原生底部工具栏是否可见（直接通过属性访问，比递归搜索更可靠）
+// 判断原生底部工具栏是否真正可见于屏幕上
 static BOOL jj_hasNativeBottomBar(UIViewController *vc) {
     if (!vc) return NO;
     @try {
-        // 优先通过 bottomBar 属性直接获取（MMWebViewController 有此属性）
-        if ([vc respondsToSelector:@selector(bottomBar)]) {
-            UIView *bar = [vc performSelector:@selector(bottomBar)];
-            if (bar && !bar.hidden && bar.alpha > 0.1 && bar.frame.size.height > 10) {
-                return YES;
-            }
-        }
-        // 再检查 shouldShowBottom 标志
+        // 1. 先查 shouldShowBottom 标志（最权威的指标）
         if ([vc respondsToSelector:@selector(shouldShowBottom)]) {
             NSNumber *val = [vc valueForKey:@"shouldShowBottom"];
-            if (val && [val boolValue]) return YES;
+            if (!val || ![val boolValue]) return NO; // 明确不显示 → 原生栏不存在
+        }
+        // 2. 验证 bottomBar 对象是否真正在视图层级中可见
+        if ([vc respondsToSelector:@selector(bottomBar)]) {
+            UIView *bar = [vc performSelector:@selector(bottomBar)];
+            if (bar && bar.superview && bar.window &&
+                !bar.hidden && bar.alpha > 0.1 &&
+                bar.frame.size.height > 10 && bar.frame.size.width > 10) {
+                // 3. 确认 bar 在屏幕可见区域内（未被推到屏幕外）
+                CGRect barInWindow = [bar convertRect:bar.bounds toView:nil];
+                CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
+                if (barInWindow.origin.y < screenH && CGRectGetMaxY(barInWindow) > 0) {
+                    return YES;
+                }
+            }
         }
     } @catch (NSException *e) {}
     return NO;
@@ -2540,12 +2547,6 @@ static void jj_updateWebNavBar(UIViewController *vc) {
 
     BOOL canBack = webView.canGoBack;
     BOOL canForward = webView.canGoForward;
-
-    // 都不可用时不显示
-    if (!canBack && !canForward) {
-        jj_removeWebNavBar(vc);
-        return;
-    }
 
     UIView *navBar = [vc.view viewWithTag:jj_webNavBarTag];
     BOOL needCreate = (navBar == nil);
@@ -2650,9 +2651,19 @@ static void jj_updateWebNavBar(UIViewController *vc) {
     UIView *backBg = [navBar viewWithTag:jj_webNavBackBgTag];
     UIView *fwdBg = [navBar viewWithTag:jj_webNavFwdBgTag];
 
-    backBtn.enabled = canBack;
-    backBtn.alpha = canBack ? 1.0 : 0.3;
-    backBg.backgroundColor = jj_navBtnBgColor(canBack);
+    // 返回按钮始终可用：有历史→返回，无历史→关闭页面
+    backBtn.enabled = YES;
+    backBtn.alpha = 1.0;
+    backBg.backgroundColor = jj_navBtnBgColor(YES);
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+        if (canBack) {
+            [backBtn setImage:[UIImage systemImageNamed:@"arrow.left" withConfiguration:config] forState:UIControlStateNormal];
+        } else {
+            // 无历史记录时显示关闭图标
+            [backBtn setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:config] forState:UIControlStateNormal];
+        }
+    }
 
     fwdBtn.enabled = canForward;
     fwdBtn.alpha = canForward ? 1.0 : 0.3;
@@ -2702,6 +2713,13 @@ static void jj_updateWebNavBar(UIViewController *vc) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             jj_updateWebNavBar(self);
         });
+    } else {
+        // 无历史记录时关闭当前页面
+        if (self.navigationController) {
+            [self.navigationController popViewControllerAnimated:YES];
+        } else {
+            [self dismissViewControllerAnimated:YES completion:nil];
+        }
     }
 }
 

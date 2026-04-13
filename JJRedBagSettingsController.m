@@ -330,7 +330,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             return count;
         }
         case JJSubPageAdvanced: {
-            NSInteger count = 2;
+            NSInteger count = 3;
             if (manager.backgroundGrabEnabled) count++;
             return count;
         }
@@ -367,7 +367,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             if (manager.gameCheatMode == 0) return 2;
             return 5;
         }
-        case JJSubPageAdSkip: return 2;
+        case JJSubPageAdSkip: return 1;
     }
     return 0;
 }
@@ -473,6 +473,14 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         cell.textLabel.text = @"\u6447\u4e00\u6447\u914d\u7f6e";
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.shakeToConfigEnabled; sw.tag = 203;
         [sw addTarget:self action:@selector(boolSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
+    }
+    ci++;
+    if (row == ci) {
+        cell.textLabel.text = @"\u7f51\u9875\u5bfc\u822a\u680f";
+        cell.detailTextLabel.text = m.webBackButtonEnabled ? @"\u5df2\u5f00\u542f" : @"\u672a\u5f00\u542f";
+        UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.webBackButtonEnabled; sw.tag = 204;
+        [sw addTarget:self action:@selector(webBackButtonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
     }
     ci++;
@@ -682,12 +690,6 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.adSkipEnabled; sw.tag = 900;
         [sw addTarget:self action:@selector(adSkipSwitchChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    } else if (row == 1) {
-        cell.textLabel.text = @"\u7f51\u9875\u8fd4\u56de\u6309\u94ae";
-        cell.detailTextLabel.text = m.webBackButtonEnabled ? @"\u5df2\u5f00\u542f" : @"\u672a\u5f00\u542f";
-        UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.webBackButtonEnabled; sw.tag = 901;
-        [sw addTarget:self action:@selector(webBackButtonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone;
     }
 }
 
@@ -883,7 +885,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     JJRedBagManager *m = [JJRedBagManager sharedManager]; m.webBackButtonEnabled = sender.on; [m saveSettings]; [self.tableView reloadData];
     if (sender.on && !m.hasShownWebBackAlert) {
         m.hasShownWebBackAlert = YES; [m saveSettings];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u7f51\u9875\u8fd4\u56de\u6309\u94ae" message:@"\u5f00\u542f\u540e\uff0c\u5f53\u7f51\u9875\u65e0\u5bfc\u822a\u6761\u6216\u5e95\u90e8\u5de5\u5177\u680f\u65f6\uff0c\u4f1a\u81ea\u52a8\u5728\u5de6\u4e0a\u89d2\u6dfb\u52a0\u4e00\u4e2a\u8fd4\u56de\u6309\u94ae\u3002\n\n\u9002\u7528\u573a\u666f\uff1a\u661f\u6807\u7f51\u9875\u65e0\u8fd4\u56de\u5bfc\u822a\u3001\u7f51\u9875\u5185\u90e8\u94fe\u63a5\u65e0\u8fd4\u56de\u6309\u94ae\u7b49\u60c5\u51b5\u3002\n\n\u70b9\u51fb\u8fd4\u56de\u540e\u6309\u94ae\u5c06\u9690\u85cf\uff0c\u4e0b\u6b21\u9700\u8981\u65f6\u4f1a\u91cd\u65b0\u663e\u793a\u3002" preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u7f51\u9875\u5bfc\u822a\u680f" message:@"\u5f00\u542f\u540e\uff0c\u5f53\u7f51\u9875\u65e0\u539f\u751f\u5e95\u90e8\u5de5\u5177\u680f\u65f6\uff0c\u4f1a\u81ea\u52a8\u5728\u9875\u9762\u5e95\u90e8\u663e\u793a\u5bfc\u822a\u680f\uff0c\u5305\u542b\u8fd4\u56de\u548c\u524d\u8fdb\u6309\u94ae\u3002\n\n\u9002\u7528\u573a\u666f\uff1a\u661f\u6807\u7f51\u9875\u3001\u516c\u4f17\u53f7\u6587\u7ae0\u5185\u94fe\u63a5\u7b49\u65e0\u5bfc\u822a\u63a7\u4ef6\u7684\u7f51\u9875\u3002\n\n\u6309\u94ae\u72b6\u6001\u4f1a\u6839\u636e\u7f51\u9875\u5386\u53f2\u8bb0\u5f55\u52a8\u6001\u66f4\u65b0\u3002" preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
     }

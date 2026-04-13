@@ -4,6 +4,7 @@
 #import "JJRedBagParam.h"
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
+#import <WebKit/WKWebView.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 
@@ -2437,65 +2438,227 @@ static UILabel *jj_findLabelContaining(UIView *view, NSString *substring) {
 
 %end
 
-#pragma mark - 网页返回按钮功能（解决星标网页无导航栏问题）
+#pragma mark - 网页底部导航栏（返回/前进按钮）
 
-static NSInteger jj_webBackButtonTag = 88990022;
+static NSInteger jj_webNavBarTag = 88990033;
+static NSInteger jj_webNavBackBtnTag = 88990034;
+static NSInteger jj_webNavForwardBtnTag = 88990035;
+static NSInteger jj_webNavBackBgTag = 88990036;
+static NSInteger jj_webNavFwdBgTag = 88990037;
+static NSInteger jj_webNavAccentLineTag = 88990038;
 
-static void jj_removeWebBackButton(UIViewController *vc) {
-    UIView *btn = [vc.view viewWithTag:jj_webBackButtonTag];
-    if (btn) [btn removeFromSuperview];
-}
-
-// 递归查找 MMWebBottomToolBar
-static UIView *jj_findWebBottomToolBar(UIView *view) {
-    if (!view) return nil;
-    NSString *clsName = NSStringFromClass([view class]);
-    if ([clsName isEqualToString:@"MMWebBottomToolBar"]) return view;
-    for (UIView *sub in view.subviews) {
-        UIView *found = jj_findWebBottomToolBar(sub);
-        if (found) return found;
+// JJ自定义主题色（青色，与官方蓝/灰色区分）
+static UIColor *jj_navAccentColor(void) {
+    if (@available(iOS 13.0, *)) {
+        return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                return [UIColor colorWithRed:0.35 green:0.85 blue:0.80 alpha:1.0]; // 亮青色（暗色模式）
+            }
+            return [UIColor colorWithRed:0.10 green:0.60 blue:0.56 alpha:1.0]; // 深青色（浅色模式）
+        }];
     }
-    return nil;
+    return [UIColor colorWithRed:0.10 green:0.60 blue:0.56 alpha:1.0];
 }
 
-// 判断 webView 是否有可返回的历史记录
-static BOOL jj_webViewCanGoBack(UIViewController *vc) {
-    if (!vc) return NO;
+// 按钮圆角背景色（深浅色自适应）
+static UIColor *jj_navBtnBgColor(BOOL enabled) {
+    if (@available(iOS 13.0, *)) {
+        return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+            if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                return enabled ? [UIColor colorWithWhite:1.0 alpha:0.12] : [UIColor colorWithWhite:1.0 alpha:0.05];
+            }
+            return enabled ? [UIColor colorWithWhite:0.0 alpha:0.06] : [UIColor colorWithWhite:0.0 alpha:0.03];
+        }];
+    }
+    return enabled ? [UIColor colorWithWhite:0.0 alpha:0.06] : [UIColor colorWithWhite:0.0 alpha:0.03];
+}
+
+// 获取 VC 的 WKWebView
+static WKWebView *jj_getWebView(UIViewController *vc) {
+    if (!vc) return nil;
     @try {
-        // 尝试获取 webView（WAWebViewController 有 m_webView 或 webView 属性）
         id webView = nil;
         if ([vc respondsToSelector:@selector(webView)]) {
             webView = [vc performSelector:@selector(webView)];
         } else if ([vc respondsToSelector:@selector(m_webView)]) {
             webView = [vc performSelector:@selector(m_webView)];
         }
-        if (webView && [webView respondsToSelector:@selector(canGoBack)]) {
-            return [webView canGoBack];
+        if ([webView isKindOfClass:[WKWebView class]]) return (WKWebView *)webView;
+    } @catch (NSException *e) {}
+    return nil;
+}
+
+// 判断原生底部工具栏是否可见（直接通过属性访问，比递归搜索更可靠）
+static BOOL jj_hasNativeBottomBar(UIViewController *vc) {
+    if (!vc) return NO;
+    @try {
+        // 优先通过 bottomBar 属性直接获取（MMWebViewController 有此属性）
+        if ([vc respondsToSelector:@selector(bottomBar)]) {
+            UIView *bar = [vc performSelector:@selector(bottomBar)];
+            if (bar && !bar.hidden && bar.alpha > 0.1 && bar.frame.size.height > 10) {
+                return YES;
+            }
+        }
+        // 再检查 shouldShowBottom 标志
+        if ([vc respondsToSelector:@selector(shouldShowBottom)]) {
+            NSNumber *val = [vc valueForKey:@"shouldShowBottom"];
+            if (val && [val boolValue]) return YES;
         }
     } @catch (NSException *e) {}
     return NO;
 }
 
-// 判断当前 VC 是否有底部导航工具栏的返回按钮（且按钮可用）
-static BOOL jj_hasNativeBackButton(UIViewController *vc) {
-    if (!vc) return NO;
-    @try {
-        UIView *toolbar = jj_findWebBottomToolBar(vc.view);
-        if (toolbar) {
-            // 查找 backButton
-            for (UIView *sub in toolbar.subviews) {
-                NSString *clsName = NSStringFromClass([sub class]);
-                if ([clsName.lowercaseString containsString:@"back"] ||
-                    [clsName isEqualToString:@"MMUIButton"] ||
-                    sub.tag == 1001) {
-                    if (sub.alpha > 0.1 && ![sub isHidden]) return YES;
-                }
-            }
-            // 检查工具栏本身的 hidden 状态
-            if (!toolbar.hidden && toolbar.alpha > 0.1) return YES;
+// 判断是否是网页URL（排除本地文件和特殊scheme）
+static BOOL jj_isWebPageURL(NSURL *url) {
+    if (!url) return NO;
+    NSString *scheme = url.scheme.lowercaseString;
+    return ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]);
+}
+
+// 移除自定义导航栏
+static void jj_removeWebNavBar(UIViewController *vc) {
+    UIView *bar = [vc.view viewWithTag:jj_webNavBarTag];
+    if (bar) [bar removeFromSuperview];
+}
+
+// 创建或更新底部导航栏
+static void jj_updateWebNavBar(UIViewController *vc) {
+    WKWebView *webView = jj_getWebView(vc);
+    if (!webView) return;
+
+    // 排除非网页内容
+    if (!jj_isWebPageURL(webView.URL)) {
+        jj_removeWebNavBar(vc);
+        return;
+    }
+
+    // 如果原生底部工具栏可见，不显示我们的
+    if (jj_hasNativeBottomBar(vc)) {
+        jj_removeWebNavBar(vc);
+        return;
+    }
+
+    BOOL canBack = webView.canGoBack;
+    BOOL canForward = webView.canGoForward;
+
+    // 都不可用时不显示
+    if (!canBack && !canForward) {
+        jj_removeWebNavBar(vc);
+        return;
+    }
+
+    UIView *navBar = [vc.view viewWithTag:jj_webNavBarTag];
+    BOOL needCreate = (navBar == nil);
+
+    if (needCreate) {
+        CGFloat bottomInset = 0;
+        if (@available(iOS 11.0, *)) {
+            bottomInset = vc.view.safeAreaInsets.bottom;
         }
-    } @catch (NSException *e) {}
-    return NO;
+        CGFloat barH = 48 + bottomInset;
+        CGFloat screenW = vc.view.bounds.size.width;
+
+        navBar = [[UIView alloc] initWithFrame:CGRectMake(0, vc.view.bounds.size.height - barH, screenW, barH)];
+        navBar.tag = jj_webNavBarTag;
+        navBar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+
+        // 毛玻璃背景（深浅色自动切换）
+        if (@available(iOS 13.0, *)) {
+            UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+            UIVisualEffectView *blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
+            blurView.frame = navBar.bounds;
+            blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [navBar addSubview:blurView];
+        } else {
+            navBar.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.95];
+        }
+
+        // 顶部彩色强调线（青色，2pt，与官方灰色分隔线明显区分）
+        UIView *accentLine = [[UIView alloc] initWithFrame:CGRectMake(0, 0, screenW, 2.0)];
+        accentLine.tag = jj_webNavAccentLineTag;
+        accentLine.backgroundColor = jj_navAccentColor();
+        accentLine.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [navBar addSubview:accentLine];
+
+        CGFloat btnW = 44, btnH = 36, btnY = 6;
+        CGFloat spacing = 16;
+        CGFloat groupW = btnW * 2 + spacing;
+        CGFloat startX = (screenW - groupW) / 2.0;
+
+        // --- 返回按钮 ---
+        UIView *backBg = [[UIView alloc] initWithFrame:CGRectMake(startX, btnY, btnW, btnH)];
+        backBg.tag = jj_webNavBackBgTag;
+        backBg.layer.cornerRadius = btnH / 2.0;
+        backBg.layer.masksToBounds = YES;
+        backBg.backgroundColor = jj_navBtnBgColor(YES);
+        [navBar addSubview:backBg];
+
+        UIButton *backBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        backBtn.tag = jj_webNavBackBtnTag;
+        backBtn.frame = backBg.frame;
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+            [backBtn setImage:[UIImage systemImageNamed:@"arrow.left" withConfiguration:config] forState:UIControlStateNormal];
+        } else {
+            [backBtn setTitle:@"\u25C0" forState:UIControlStateNormal];
+            backBtn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        }
+        backBtn.tintColor = jj_navAccentColor();
+        [backBtn addTarget:vc action:@selector(jj_webNavBackTapped) forControlEvents:UIControlEventTouchUpInside];
+        [navBar addSubview:backBtn];
+
+        // --- 前进按钮 ---
+        UIView *fwdBg = [[UIView alloc] initWithFrame:CGRectMake(startX + btnW + spacing, btnY, btnW, btnH)];
+        fwdBg.tag = jj_webNavFwdBgTag;
+        fwdBg.layer.cornerRadius = btnH / 2.0;
+        fwdBg.layer.masksToBounds = YES;
+        fwdBg.backgroundColor = jj_navBtnBgColor(YES);
+        [navBar addSubview:fwdBg];
+
+        UIButton *fwdBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        fwdBtn.tag = jj_webNavForwardBtnTag;
+        fwdBtn.frame = fwdBg.frame;
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+            [fwdBtn setImage:[UIImage systemImageNamed:@"arrow.right" withConfiguration:config] forState:UIControlStateNormal];
+        } else {
+            [fwdBtn setTitle:@"\u25B6" forState:UIControlStateNormal];
+            fwdBtn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        }
+        fwdBtn.tintColor = jj_navAccentColor();
+        [fwdBtn addTarget:vc action:@selector(jj_webNavForwardTapped) forControlEvents:UIControlEventTouchUpInside];
+        [navBar addSubview:fwdBtn];
+
+        // --- JJ 标识（小圆点+文字，表明这是插件功能）---
+        UILabel *badge = [[UILabel alloc] init];
+        badge.text = @"JJ";
+        badge.font = [UIFont systemFontOfSize:8 weight:UIFontWeightBlack];
+        badge.textColor = jj_navAccentColor();
+        badge.textAlignment = NSTextAlignmentCenter;
+        [badge sizeToFit];
+        badge.frame = CGRectMake(screenW - badge.frame.size.width - 12, btnY + btnH - badge.frame.size.height, badge.frame.size.width, badge.frame.size.height);
+        badge.alpha = 0.5;
+        [navBar addSubview:badge];
+
+        [vc.view addSubview:navBar];
+        [vc.view bringSubviewToFront:navBar];
+    }
+
+    // 更新按钮状态和背景色
+    UIButton *backBtn = [navBar viewWithTag:jj_webNavBackBtnTag];
+    UIButton *fwdBtn = [navBar viewWithTag:jj_webNavForwardBtnTag];
+    UIView *backBg = [navBar viewWithTag:jj_webNavBackBgTag];
+    UIView *fwdBg = [navBar viewWithTag:jj_webNavFwdBgTag];
+
+    backBtn.enabled = canBack;
+    backBtn.alpha = canBack ? 1.0 : 0.3;
+    backBg.backgroundColor = jj_navBtnBgColor(canBack);
+
+    fwdBtn.enabled = canForward;
+    fwdBtn.alpha = canForward ? 1.0 : 0.3;
+    fwdBg.backgroundColor = jj_navBtnBgColor(canForward);
+
+    [vc.view bringSubviewToFront:navBar];
 }
 
 %hook MMWebViewController
@@ -2506,87 +2669,51 @@ static BOOL jj_hasNativeBackButton(UIViewController *vc) {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (!manager.enabled || !manager.webBackButtonEnabled) return;
 
-    // 节流：避免频繁检测
-    static NSTimeInterval jj_lastWebBackCheckTime = 0;
+    // 节流：每0.5秒检测一次
+    static NSTimeInterval jj_lastNavCheckTime = 0;
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    if (now - jj_lastWebBackCheckTime < 0.8) return;
-    jj_lastWebBackCheckTime = now;
+    if (now - jj_lastNavCheckTime < 0.5) return;
+    jj_lastNavCheckTime = now;
 
-    // 检查是否有原生返回按钮
-    BOOL hasNativeBack = jj_hasNativeBackButton(self);
-    BOOL canGoBack = jj_webViewCanGoBack(self);
-
-    // 只在有历史记录但没有原生返回按钮时显示浮层按钮
-    if (canGoBack && !hasNativeBack) {
-        // 移除旧的（防止重复添加）
-        jj_removeWebBackButton(self);
-
-        // 添加浮层返回按钮
-        UIButton *backBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        backBtn.tag = jj_webBackButtonTag;
-        backBtn.frame = CGRectMake(16, 0, 44, 44);
-
-        // 尝试使用 SF Symbol，没有则使用文字
-        if (@available(iOS 13.0, *)) {
-            UIImage *img = [UIImage systemImageNamed:@"chevron.left"
-                                   withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightMedium]];
-            [backBtn setImage:img forState:UIControlStateNormal];
-        } else {
-            [backBtn setTitle:@"◀" forState:UIControlStateNormal];
-        }
-
-        // 半透明黑底圆形按钮
-        backBtn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
-        backBtn.layer.cornerRadius = 22;
-        backBtn.tintColor = [UIColor whiteColor];
-        backBtn.clipsToBounds = YES;
-
-        // 适配安全区域
-        if (@available(iOS 11.0, *)) {
-            UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
-            backBtn.frame = CGRectMake(16,
-                                      guide.layoutFrame.origin.y + 8,
-                                      44, 44);
-        } else {
-            // 放在状态栏下方
-            CGFloat topInset = [UIApplication sharedApplication].statusBarFrame.size.height;
-            backBtn.frame = CGRectMake(16, topInset + 8, 44, 44);
-        }
-
-        [backBtn addTarget:self action:@selector(jj_webBackButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [self.view addSubview:backBtn];
-    } else {
-        // 没有历史记录或已有原生按钮，移除我们的浮层按钮
-        jj_removeWebBackButton(self);
-    }
+    jj_updateWebNavBar(self);
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;
-    jj_removeWebBackButton(self);
+    jj_removeWebNavBar(self);
+}
+
+// 深浅色切换时自动更新导航栏外观
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    %orig;
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            // 移除旧的，下一次 layout 时会自动用新颜色重建
+            jj_removeWebNavBar(self);
+        }
+    }
 }
 
 %new
-- (void)jj_webBackButtonTapped:(UIButton *)sender {
-    @try {
-        // 获取 webView
-        id webView = nil;
-        if ([self respondsToSelector:@selector(webView)]) {
-            webView = [self performSelector:@selector(webView)];
-        } else if ([self respondsToSelector:@selector(m_webView)]) {
-            webView = [self performSelector:@selector(m_webView)];
-        }
-        if (webView && [webView respondsToSelector:@selector(goBack)]) {
-            [webView goBack];
-        }
-    } @catch (NSException *e) {}
+- (void)jj_webNavBackTapped {
+    WKWebView *webView = jj_getWebView(self);
+    if (webView && webView.canGoBack) {
+        [webView goBack];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_updateWebNavBar(self);
+        });
+    }
+}
 
-    // 隐藏按钮（用户点了就隐藏，下次需要时再显示）
-    [UIView animateWithDuration:0.3 animations:^{
-        sender.alpha = 0;
-    } completion:^(BOOL finished) {
-        [sender removeFromSuperview];
-    }];
+%new
+- (void)jj_webNavForwardTapped {
+    WKWebView *webView = jj_getWebView(self);
+    if (webView && webView.canGoForward) {
+        [webView goForward];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_updateWebNavBar(self);
+        });
+    }
 }
 
 %end

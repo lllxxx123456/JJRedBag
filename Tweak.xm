@@ -2542,7 +2542,6 @@ static BOOL jj_hasNativeBackButton(UIViewController *vc) {
         backBtn.clipsToBounds = YES;
 
         // 适配安全区域
-        UIView *safeView = self.view;
         if (@available(iOS 11.0, *)) {
             UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
             backBtn.frame = CGRectMake(16,
@@ -2550,7 +2549,7 @@ static BOOL jj_hasNativeBackButton(UIViewController *vc) {
                                       44, 44);
         } else {
             // 放在状态栏下方
-            CGFloat topInset = [self respondsToSelector:@selector(statusBarHeight)] ? [self statusBarHeight] : 20;
+            CGFloat topInset = [UIApplication sharedApplication].statusBarFrame.size.height;
             backBtn.frame = CGRectMake(16, topInset + 8, 44, 44);
         }
 

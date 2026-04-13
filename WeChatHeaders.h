@@ -268,6 +268,7 @@
 - (id)getMsgCmessageWrap;
 - (void)jj_onPlusOne;
 - (void)jj_showPlusOneUnsupported:(NSString *)reason;
+- (void)jj_scrollChatToBottom;
 @end
 
 @interface CommonMessageViewModel : NSObject

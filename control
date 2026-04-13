@@ -1,0 +1,8 @@
+Package: com.jijiang778.jjredbag
+Name: JJRedBag
+Depends: mobilesubstrate
+Version: 1.1-1
+Architecture: iphoneos-arm
+Description: WeChat Auto Red Packet Grabber - For Entertainment Only
+Author: JiJiang778
+Section: Tweaks

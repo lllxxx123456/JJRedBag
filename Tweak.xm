@@ -2447,9 +2447,6 @@ static NSInteger jj_webNavBackBgTag = 88990036;
 static NSInteger jj_webNavFwdBgTag = 88990037;
 static NSInteger jj_webNavAccentLineTag = 88990038;
 
-// 关联对象 key：追踪"已尝试回首页"状态
-static char jj_webTriedGoHomeKey;
-
 // JJ自定义主题色（青色，与官方蓝/灰色区分）
 static UIColor *jj_navAccentColor(void) {
     if (@available(iOS 13.0, *)) {
@@ -2661,19 +2658,10 @@ static void jj_updateWebNavBar(UIViewController *vc) {
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
         if (canBack) {
-            // 有历史记录 → 显示返回箭头
             [backBtn setImage:[UIImage systemImageNamed:@"arrow.left" withConfiguration:config] forState:UIControlStateNormal];
-            // 有真实历史时清除"已尝试回首页"标记
-            objc_setAssociatedObject(vc, &jj_webTriedGoHomeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         } else {
-            NSNumber *triedHome = objc_getAssociatedObject(vc, &jj_webTriedGoHomeKey);
-            if (triedHome && [triedHome boolValue]) {
-                // 已尝试过回首页 → 显示关闭图标
-                [backBtn setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:config] forState:UIControlStateNormal];
-            } else {
-                // 未尝试回首页 → 显示房子图标（回首页）
-                [backBtn setImage:[UIImage systemImageNamed:@"house" withConfiguration:config] forState:UIControlStateNormal];
-            }
+            // 无历史记录 → 显示房子图标（回首页）
+            [backBtn setImage:[UIImage systemImageNamed:@"house" withConfiguration:config] forState:UIControlStateNormal];
         }
     }
 
@@ -2721,31 +2709,26 @@ static void jj_updateWebNavBar(UIViewController *vc) {
 - (void)jj_webNavBackTapped {
     WKWebView *webView = jj_getWebView(self);
     if (webView && webView.canGoBack) {
-        // 有历史记录 → 正常返回
-        objc_setAssociatedObject(self, &jj_webTriedGoHomeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [webView goBack];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             jj_updateWebNavBar(self);
         });
     } else if (webView && webView.URL) {
-        NSNumber *triedHome = objc_getAssociatedObject(self, &jj_webTriedGoHomeKey);
-        if (triedHome && [triedHome boolValue]) {
-            // 已经尝试过回首页 → 关闭当前页面
-            objc_setAssociatedObject(self, &jj_webTriedGoHomeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            if (self.navigationController) {
-                [self.navigationController popViewControllerAnimated:YES];
-            } else {
-                [self dismissViewControllerAnimated:YES completion:nil];
-            }
+        // 无历史记录 → 跳转到首页
+        NSString *host = webView.URL.host;
+        NSString *homeURL;
+        if (host && [host containsString:@"xiaofubao.com"]) {
+            // 特例：贵州航空食品有限公司 → 指定首页URL
+            homeURL = @"https://webapp.xiaofubao.com/card/card_home.shtml?platform=WECHAT_H5&schoolCode=qy119&thirdAppid=wx8fddf03d92fd6fa9";
         } else {
-            // 无历史记录且未尝试 → 用 location.replace 回域名首页（不产生新历史）
-            objc_setAssociatedObject(self, &jj_webTriedGoHomeKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            NSString *js = @"(function(){var o=location.origin+'/';if(location.href!==o){location.replace(o);}})()";
-            [webView evaluateJavaScript:js completionHandler:nil];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                jj_updateWebNavBar(self);
-            });
+            // 其他网站 → 回域名根路径
+            homeURL = [NSString stringWithFormat:@"%@://%@/", webView.URL.scheme, host];
         }
+        NSString *js = [NSString stringWithFormat:@"location.replace('%@')", homeURL];
+        [webView evaluateJavaScript:js completionHandler:nil];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_updateWebNavBar(self);
+        });
     }
 }
 

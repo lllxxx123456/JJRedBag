@@ -2222,6 +2222,12 @@ static BOOL jj_momentsOriginalQualityFeatureEnabled(void) {
     return manager.enabled && manager.momentsOriginalQualityEnabled;
 }
 
+static BOOL jj_isMomentsOriginalPickerOptionObject(id obj) {
+    if (!obj) return NO;
+    Class optionObjClass = objc_getClass("MMImagePickerManagerOptionObj");
+    return optionObjClass && [obj isKindOfClass:optionObjClass];
+}
+
 static BOOL jj_isMomentsOriginalEntryController(UIViewController *vc) {
     if (!vc) return NO;
     return [NSStringFromClass([vc class]) isEqualToString:@"WCTimeLineViewController"];
@@ -2437,7 +2443,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 %hook MMImagePickerManager
 
 + (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 {
-    if (jj_momentsOriginalQualityFeatureEnabled() && [arg1 isKindOfClass:[MMImagePickerManagerOptionObj class]] && [arg2 isKindOfClass:[UIViewController class]]) {
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
         if (jj_shouldForceMomentsOriginalPickerForController(vc) || (jj_momentsOriginalPickerSessionPending && jj_isMomentsOriginalEntryController(vc))) {
             jj_momentsOriginalPickerSessionPending = YES;
@@ -2449,7 +2455,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 }
 
 - (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 delegate:(id)arg3 {
-    if (jj_momentsOriginalQualityFeatureEnabled() && [arg1 isKindOfClass:[MMImagePickerManagerOptionObj class]] && [arg2 isKindOfClass:[UIViewController class]]) {
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
         if (jj_shouldForceMomentsOriginalPickerForController(vc) || (jj_momentsOriginalPickerSessionPending && jj_isMomentsOriginalEntryController(vc))) {
             jj_momentsOriginalPickerSessionPending = YES;

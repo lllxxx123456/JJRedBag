@@ -266,9 +266,9 @@
 - (struct CGRect)showRectForMenuController;
 - (id)getViewController;
 - (id)getMsgCmessageWrap;
-- (void)jj_onPlusOne;
-- (void)jj_showPlusOneUnsupported:(NSString *)reason;
-- (void)jj_scrollChatToBottom;
+- (void)jjRedBag_onPlusOne;
+- (void)jjRedBag_showPlusOneUnsupported:(NSString *)reason;
+- (void)jjRedBag_scrollChatToBottom;
 @end
 
 @interface CommonMessageViewModel : NSObject
@@ -353,6 +353,52 @@
 
 // 搜索界面语音输入浮窗
 @interface FTSFloatingVoiceInputView : UIView
+@end
+
+// 朋友圈发布弹窗
+@interface WCActionSheet : UIView
++ (id)getCurrentShowingActionSheet;
+- (long long)addButtonWithTitle:(id)a0 eventAction:(id /* block */)a1;
+- (unsigned long long)numberOfButtons;
+- (id)buttonTitleAtIndex:(long long)a0;
+- (void)reloadInnerView;
+@end
+
+// 朋友圈时间线控制器
+@interface WCTimeLineViewController : UIViewController
+- (void)showPhotoAlert:(id)a0;
+- (void)showUploadOption:(id)a0;
+- (void)actionSheet:(id)a0 clickedButtonAtIndex:(long long)a1;
+@end
+
+@interface MMImagePickerManagerOptionObj : NSObject
+@property (nonatomic) BOOL canSendOriginalImage;
+@property (nonatomic) BOOL forceSendOriginalImage;
+@property (nonatomic) BOOL hideOriginButton;
+@property (nonatomic) BOOL isOpenSendOriginVideo;
+@property (nonatomic) BOOL isWAVideoCompressed;
+@property (nonatomic) long long videoQualityType;
+@end
+
+@interface MMImagePickerManager : NSObject
++ (void)showWithOptionObj:(id)a0 inViewController:(id)a1;
+- (void)showWithOptionObj:(id)a0 inViewController:(id)a1 delegate:(id)a2;
+@end
+
+@interface MMAsset : NSObject
+@property (nonatomic) BOOL m_isNeedOriginImage;
+@end
+
+@interface MMAssetInfo : NSObject
+@property (readonly, nonatomic) MMAsset *asset;
+@property (nonatomic) BOOL isHDImage;
+@end
+
+@interface MMAssetPickerController : UIViewController
+@property (nonatomic) BOOL isOriginSelected;
+@property (retain, nonatomic) NSMutableArray *selectedAssetInfos;
+- (void)onOriginImageCheckChanged;
+- (BOOL)getPickerWAVideoCompressedFromOptionObj;
 @end
 
 // 转发/分享视图控制器（发布朋友圈等）

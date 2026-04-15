@@ -1790,23 +1790,23 @@ static UITableView *jj_findTableViewInView(UIView *view) {
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     if (MMMenuItemClass) {
         @try {
-            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jj_onPlusOne)];
+            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jjRedBag_onPlusOne)];
         } @catch (NSException *e) {}
         if (!plusOneItem) {
             @try {
-                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jjRedBag_onPlusOne)];
             } @catch (NSException *e) {}
         }
         if (!plusOneItem) {
             @try {
-                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jj_onPlusOne)];
+                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jjRedBag_onPlusOne)];
             } @catch (NSException *e) {}
         }
     }
     // 最终回退：使用标准UIMenuItem
     if (!plusOneItem) {
         @try {
-            plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jj_onPlusOne)];
+            plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jjRedBag_onPlusOne)];
         } @catch (NSException *e) {}
     }
     // 安全检查：避免重复添加+1（其他插件可能已经添加了+1菜单项）
@@ -1828,7 +1828,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 }
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-    if (action == @selector(jj_onPlusOne)) {
+    if (action == @selector(jjRedBag_onPlusOne)) {
         JJRedBagManager *m = [JJRedBagManager sharedManager];
         if (!m.plusOneEnabled) return NO;
         CMessageWrap *msgWrap = nil;
@@ -1852,7 +1852,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 }
 
 %new
-- (void)jj_onPlusOne {
+- (void)jjRedBag_onPlusOne {
     @try {
         MMMenuController *menuCtrl = [objc_getClass("MMMenuController") sharedMenuController];
         if (menuCtrl) [menuCtrl setMenuVisible:NO animated:YES];
@@ -1873,13 +1873,13 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 
         NSString *unsupportedReason = jj_plusOneUnsupportedReason(msgWrap);
         if (unsupportedReason.length > 0) {
-            [self jj_showPlusOneUnsupported:unsupportedReason];
+            [self jjRedBag_showPlusOneUnsupported:unsupportedReason];
             return;
         }
 
         id serviceCenter = jj_getServiceCenter();
         if (!serviceCenter) {
-            [self jj_showPlusOneUnsupported:@"服务中心获取失败"];
+            [self jjRedBag_showPlusOneUnsupported:@"服务中心获取失败"];
             return;
         }
 
@@ -1896,13 +1896,13 @@ static UITableView *jj_findTableViewInView(UIView *view) {
         if (msgType == 1) {
             NSString *text = msgWrap.m_nsContent;
             if (!text || text.length == 0) {
-                [self jj_showPlusOneUnsupported:@"文本内容为空"];
+                [self jjRedBag_showPlusOneUnsupported:@"文本内容为空"];
                 return;
             }
             CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
             if (newWrap) {
                 [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                [self jj_scrollChatToBottom];
+                [self jjRedBag_scrollChatToBottom];
             }
             return;
         }
@@ -1912,7 +1912,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
             CMessageWrap *newWrap = jj_clonePlusOneMessageWrap(msgWrap, selfUserName, chatUserName);
             if (newWrap) {
                 [msgMgr AddEmoticonMsg:chatUserName MsgWrap:newWrap];
-                [self jj_scrollChatToBottom];
+                [self jjRedBag_scrollChatToBottom];
             }
             return;
         }
@@ -1920,13 +1920,13 @@ static UITableView *jj_findTableViewInView(UIView *view) {
         // === 获取聊天联系人（媒体消息需要） ===
         CContact *chatContact = [contactMgr getContactByName:chatUserName];
         if (!chatContact) {
-            [self jj_showPlusOneUnsupported:@"获取联系人失败"];
+            [self jjRedBag_showPlusOneUnsupported:@"获取联系人失败"];
             return;
         }
 
         Class forwardUtilCls = objc_getClass("ForwardMsgUtil");
         if (!forwardUtilCls) {
-            [self jj_showPlusOneUnsupported:@"转发工具不可用"];
+            [self jjRedBag_showPlusOneUnsupported:@"转发工具不可用"];
             return;
         }
 
@@ -1943,7 +1943,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
                 } @catch (NSException *e) {}
             }
             if (sent) {
-                [self jj_scrollChatToBottom];
+                [self jjRedBag_scrollChatToBottom];
                 return;
             }
             // ForwardMsgUtil失败则回退到克隆
@@ -1951,12 +1951,12 @@ static UITableView *jj_findTableViewInView(UIView *view) {
             if (newWrap) {
                 @try {
                     [msgMgr AddMsg:chatUserName MsgWrap:newWrap];
-                    [self jj_scrollChatToBottom];
+                    [self jjRedBag_scrollChatToBottom];
                     sent = YES;
                 } @catch (NSException *e) {}
             }
             if (!sent) {
-                [self jj_showPlusOneUnsupported:@"语音消息转发失败"];
+                [self jjRedBag_showPlusOneUnsupported:@"语音消息转发失败"];
             }
             return;
         }
@@ -1996,16 +1996,16 @@ static UITableView *jj_findTableViewInView(UIView *view) {
         }
 
         if (sent) {
-            [self jj_scrollChatToBottom];
+            [self jjRedBag_scrollChatToBottom];
         } else {
-            [self jj_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1（type=%u）", msgType]];
+            [self jjRedBag_showPlusOneUnsupported:[NSString stringWithFormat:@"不支持+1（type=%u）", msgType]];
         }
     } @catch (NSException *exception) {}
 }
 
 // 发送后自动滚动到聊天底部
 %new
-- (void)jj_scrollChatToBottom {
+- (void)jjRedBag_scrollChatToBottom {
     // 从响应链查找聊天视图控制器
     UIResponder *responder = self;
     while (responder) {
@@ -2045,7 +2045,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 }
 
 %new
-- (void)jj_showPlusOneUnsupported:(NSString *)reason {
+- (void)jjRedBag_showPlusOneUnsupported:(NSString *)reason {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
         while (topVC.presentedViewController) topVC = topVC.presentedViewController;
@@ -2086,22 +2086,22 @@ static UITableView *jj_findTableViewInView(UIView *view) {
             id plusOneItem = nil;
             if (MMMenuItemClass) {
                 @try {
-                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jj_onPlusOne)];
+                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jjRedBag_onPlusOne)];
                 } @catch (NSException *e) {}
                 if (!plusOneItem) {
                     @try {
-                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jj_onPlusOne)];
+                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jjRedBag_onPlusOne)];
                     } @catch (NSException *e) {}
                 }
                 if (!plusOneItem) {
                     @try {
-                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jj_onPlusOne)];
+                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jjRedBag_onPlusOne)];
                     } @catch (NSException *e) {}
                 }
             }
             if (!plusOneItem) {
                 @try {
-                    plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jj_onPlusOne)];
+                    plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jjRedBag_onPlusOne)];
                 } @catch (NSException *e) {}
             }
             if (plusOneItem) {
@@ -2140,7 +2140,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 }
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-    if (action == @selector(jj_onPlusOne)) {
+    if (action == @selector(jjRedBag_onPlusOne)) {
         return [[JJRedBagManager sharedManager] plusOneEnabled];
     }
     if (action == @selector(jj_onEmoticonResize)) {
@@ -2211,6 +2211,128 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 }
 
 %end
+
+
+static NSString *jj_momentsOriginalMenuTitle = @"从手机相册选择（原画质）";
+static char jj_momentsForceOriginalPickerKey;
+static BOOL jj_momentsOriginalPickerSessionPending = NO;
+
+static BOOL jj_momentsOriginalQualityFeatureEnabled(void) {
+    JJRedBagManager *manager = [JJRedBagManager sharedManager];
+    return manager.enabled && manager.momentsOriginalQualityEnabled;
+}
+
+static BOOL jj_isMomentsOriginalEntryController(UIViewController *vc) {
+    if (!vc) return NO;
+    return [NSStringFromClass([vc class]) isEqualToString:@"WCTimeLineViewController"];
+}
+
+static BOOL jj_actionSheetContainsTitle(WCActionSheet *sheet, NSString *title) {
+    if (!sheet || title.length == 0) return NO;
+    @try {
+        unsigned long long count = [sheet numberOfButtons];
+        for (unsigned long long i = 0; i < count; i++) {
+            id buttonTitle = [sheet buttonTitleAtIndex:(long long)i];
+            if ([buttonTitle isKindOfClass:[NSString class]] && [buttonTitle isEqualToString:title]) {
+                return YES;
+            }
+        }
+    } @catch (NSException *e) {}
+    return NO;
+}
+
+static NSInteger jj_momentsAlbumButtonIndex(WCActionSheet *sheet) {
+    if (!sheet) return NSNotFound;
+    NSInteger fallbackIndex = NSNotFound;
+    @try {
+        unsigned long long count = [sheet numberOfButtons];
+        for (unsigned long long i = 0; i < count; i++) {
+            id buttonTitle = [sheet buttonTitleAtIndex:(long long)i];
+            if ([buttonTitle isKindOfClass:[NSString class]]) {
+                NSString *title = (NSString *)buttonTitle;
+                if ([title isEqualToString:@"从手机相册选择"]) {
+                    return (NSInteger)i;
+                }
+                if (fallbackIndex == NSNotFound && [title containsString:@"从手机相册选择"] && ![title containsString:@"原画质"]) {
+                    fallbackIndex = (NSInteger)i;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+    return fallbackIndex;
+}
+
+static void jj_markMomentsOriginalPickerForController(UIViewController *vc, BOOL enabled) {
+    if (!vc) return;
+    objc_setAssociatedObject(vc, &jj_momentsForceOriginalPickerKey, enabled ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static BOOL jj_shouldForceMomentsOriginalPickerForController(UIViewController *vc) {
+    if (!vc) return NO;
+    NSNumber *flag = objc_getAssociatedObject(vc, &jj_momentsForceOriginalPickerKey);
+    return flag && [flag boolValue];
+}
+
+static void jj_applyMomentsOriginalPickerOptions(MMImagePickerManagerOptionObj *optionObj) {
+    if (!optionObj) return;
+    optionObj.canSendOriginalImage = YES;
+    optionObj.forceSendOriginalImage = YES;
+    optionObj.hideOriginButton = YES;
+    optionObj.isOpenSendOriginVideo = YES;
+    optionObj.isWAVideoCompressed = NO;
+    if (optionObj.videoQualityType < 1) {
+        optionObj.videoQualityType = 1;
+    }
+}
+
+static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picker) {
+    if (!picker) return;
+    @try {
+        picker.isOriginSelected = YES;
+        if ([picker respondsToSelector:@selector(onOriginImageCheckChanged)]) {
+            [picker onOriginImageCheckChanged];
+        }
+        NSArray *assetInfos = picker.selectedAssetInfos;
+        if (![assetInfos isKindOfClass:[NSArray class]]) return;
+        for (id info in assetInfos) {
+            if ([info respondsToSelector:@selector(setIsHDImage:)]) {
+                [info setIsHDImage:YES];
+            }
+            if ([info respondsToSelector:@selector(asset)]) {
+                MMAsset *asset = [info asset];
+                if (asset && [asset respondsToSelector:@selector(setM_isNeedOriginImage:)]) {
+                    asset.m_isNeedOriginImage = YES;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
+static void jj_injectMomentsOriginalMenu(WCTimeLineViewController *vc) {
+    if (!jj_momentsOriginalQualityFeatureEnabled() || !vc) return;
+    WCActionSheet *sheet = [objc_getClass("WCActionSheet") getCurrentShowingActionSheet];
+    if (!sheet) return;
+    if (jj_actionSheetContainsTitle(sheet, jj_momentsOriginalMenuTitle)) return;
+    NSInteger albumIndex = jj_momentsAlbumButtonIndex(sheet);
+    if (albumIndex == NSNotFound) return;
+    WCTimeLineViewController *capturedVC = vc;
+    WCActionSheet *capturedSheet = sheet;
+    [sheet addButtonWithTitle:jj_momentsOriginalMenuTitle eventAction:^{
+        WCTimeLineViewController *strongVC = capturedVC;
+        WCActionSheet *strongSheet = capturedSheet ?: [objc_getClass("WCActionSheet") getCurrentShowingActionSheet];
+        if (!strongVC || !strongSheet) return;
+        jj_markMomentsOriginalPickerForController((UIViewController *)strongVC, YES);
+        @try {
+            NSInteger targetIndex = jj_momentsAlbumButtonIndex(strongSheet);
+            if (targetIndex == NSNotFound) targetIndex = albumIndex;
+            [strongVC actionSheet:strongSheet clickedButtonAtIndex:(long long)targetIndex];
+        } @catch (NSException *e) {
+            jj_momentsOriginalPickerSessionPending = NO;
+            jj_markMomentsOriginalPickerForController((UIViewController *)strongVC, NO);
+        }
+    }];
+    [sheet reloadInnerView];
+}
 
 
 #pragma mark - 界面优化：隐藏朋友圈"上次分组"标签
@@ -2284,6 +2406,156 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         self.hidden = YES;
         self.clipsToBounds = YES;
     }
+}
+
+%end
+
+%hook WCTimeLineViewController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    jj_momentsOriginalPickerSessionPending = NO;
+    jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
+}
+
+- (void)showPhotoAlert:(id)arg1 {
+    %orig;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        jj_injectMomentsOriginalMenu(self);
+    });
+}
+
+- (void)showUploadOption:(id)arg1 {
+    %orig;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        jj_injectMomentsOriginalMenu(self);
+    });
+}
+
+%end
+
+%hook MMImagePickerManager
+
++ (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 {
+    if (jj_momentsOriginalQualityFeatureEnabled() && [arg1 isKindOfClass:[MMImagePickerManagerOptionObj class]] && [arg2 isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)arg2;
+        if (jj_shouldForceMomentsOriginalPickerForController(vc) || (jj_momentsOriginalPickerSessionPending && jj_isMomentsOriginalEntryController(vc))) {
+            jj_momentsOriginalPickerSessionPending = YES;
+            jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
+            jj_markMomentsOriginalPickerForController(vc, NO);
+        }
+    }
+    %orig;
+}
+
+- (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 delegate:(id)arg3 {
+    if (jj_momentsOriginalQualityFeatureEnabled() && [arg1 isKindOfClass:[MMImagePickerManagerOptionObj class]] && [arg2 isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)arg2;
+        if (jj_shouldForceMomentsOriginalPickerForController(vc) || (jj_momentsOriginalPickerSessionPending && jj_isMomentsOriginalEntryController(vc))) {
+            jj_momentsOriginalPickerSessionPending = YES;
+            jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
+            jj_markMomentsOriginalPickerForController(vc, NO);
+        }
+    }
+    %orig;
+}
+
+%end
+
+%hook MMAssetPickerController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    if (jj_momentsOriginalPickerSessionPending) {
+        jj_prepareOriginalAssetInfosForPicker(self);
+    }
+}
+
+- (BOOL)getPickerWAVideoCompressedFromOptionObj {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return NO;
+    }
+    return %orig;
+}
+
+- (void)sendSelectedMedia {
+    if (jj_momentsOriginalPickerSessionPending) {
+        jj_prepareOriginalAssetInfosForPicker(self);
+    }
+    %orig;
+}
+
+- (void)OnCancel:(id)arg1 {
+    jj_momentsOriginalPickerSessionPending = NO;
+    %orig;
+}
+
+- (void)onQuit {
+    %orig;
+}
+
+%end
+
+%hook MMAssetTimeLineConfig
+
+- (BOOL)isRetrivingOriginImage {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return YES;
+    }
+    return %orig;
+}
+
+- (BOOL)shouldCompressLongImage {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return NO;
+    }
+    return %orig;
+}
+
+- (struct CGSize)imageResultSizeForOriginSize:(struct CGSize)arg1 {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return arg1;
+    }
+    return %orig;
+}
+
+- (double)compressQuality {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return 1.0;
+    }
+    return %orig;
+}
+
+%end
+
+%hook MMAssetNewLifeSelectImageConfig
+
+- (BOOL)isRetrivingOriginImage {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return YES;
+    }
+    return %orig;
+}
+
+- (BOOL)shouldCompressLongImage {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return NO;
+    }
+    return %orig;
+}
+
+- (struct CGSize)imageResultSizeForOriginSize:(struct CGSize)arg1 {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return arg1;
+    }
+    return %orig;
+}
+
+- (double)compressQuality {
+    if (jj_momentsOriginalPickerSessionPending) {
+        return 1.0;
+    }
+    return %orig;
 }
 
 %end

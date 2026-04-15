@@ -330,7 +330,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             return count;
         }
         case JJSubPageAdvanced: {
-            NSInteger count = 3;
+            NSInteger count = 4;
             if (manager.backgroundGrabEnabled) count++;
             return count;
         }
@@ -481,6 +481,14 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         cell.detailTextLabel.text = m.webBackButtonEnabled ? @"\u5df2\u5f00\u542f" : @"\u672a\u5f00\u542f";
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.webBackButtonEnabled; sw.tag = 204;
         [sw addTarget:self action:@selector(webBackButtonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
+    }
+    ci++;
+    if (row == ci) {
+        cell.textLabel.text = @"朋友圈原画质";
+        cell.detailTextLabel.text = m.momentsOriginalQualityEnabled ? @"已开启" : @"未开启";
+        UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.momentsOriginalQualityEnabled; sw.tag = 205;
+        [sw addTarget:self action:@selector(momentsOriginalQualitySwitchChanged:) forControlEvents:UIControlEventValueChanged];
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
     }
     ci++;
@@ -865,7 +873,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     JJRedBagManager *m = [JJRedBagManager sharedManager]; m.gameCheatEnabled = sender.on; [m saveSettings]; [self.tableView reloadData];
     if (sender.on && !m.hasShownGameCheatAlert) {
         m.hasShownGameCheatAlert = YES; [m saveSettings];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u5c0f\u6e38\u620f\u4f5c\u5f0a" message:@"\u5f00\u542f\u540e\u53ef\u5bf9\u9ab0\u5b50\u548c\u731c\u62f3\u8fdb\u884c\u4f5c\u5f0a\uff1a\n\n\u3010\u6a21\u5f0f1\u3011\u53d1\u9001\u65f6\u9009\u62e9\n\u6bcf\u6b21\u53d1\u9001\u9ab0\u5b50/\u731c\u62f3\u65f6\u5f39\u51fa\u9009\u62e9\u9762\u677f\u3002\n\n\u3010\u6a21\u5f0f2\u3011\u9884\u8bbe\u5e8f\u5217\n\u63d0\u524d\u8bbe\u7f6e\u7ed3\u679c\u5e8f\u5217\uff0c\u53d1\u9001\u65f6\u81ea\u52a8\u6309\u5e8f\u5217\u51fa\u7ed3\u679c\u3002\n\u2022 \u9ab0\u5b50\uff1a\u8f93\u51651-6\u7684\u6570\u5b57\n\u2022 \u731c\u62f3\uff1a1=\u526a\u5200 2=\u77f3\u5934 3=\u5e03\n\u2022 \u8f93\u51650\u8868\u793a\u8be5\u6b21\u4e0d\u4f5c\u5f0a\n\u2022 \u5e8f\u5217\u7528\u5b8c\u540e\u6062\u590d\u6b63\u5e38" preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\u5c0f\u6e38\u620f\u4f5c\u5f0a" message:@"\u5f00\u542f\u540e\u53ef\u5bf9\u9ab0\u5b50\u548c\u731c\u62f3\u8fdb\u884c\u4f5c\u5f0a\uff1a\n\n\u3010\u6a21\u5f0f1\u3011\u53d1\u9001\u65f6\u9009\u62e9\n\u6bcf\u6b21\u53d1\u9001\u9ab0\u5b50/\u731c\u62f3\u65f6\u5f39\u51fa\u9009\u62e9\u9762\u677f\u3002\n\n\u3010\u6a21\u5f0f2\u3011\u9884\u8bbe\u5e8f\u5217\n\u63d0\u524d\u8bbe\u7f6e\u7ed3\u679c\u5e8f\u5217\uff0c\u53d1\u9001\u65f6\u81ea\u52a8\u6309\u5e8f\u5217\u51fa\u7ed3\u679c\u3002\n\u2022 \u9ab0\u5b50\uff1a\u8f93\u51651-6\u7684\u6570\u5b57\n\u2022 \u731c\u62f3\uff1a1=\u526a\u5200 2=\u77f3\u5934 3=\u5e03\n\u2022 \u8f93\u51650\u8868\u793a\u4e0d\u4f5c\u5f0a\n\u2022 \u5e8f\u5217\u7528\u5b8c\u540e\u6062\u590d\u6b63\u5e38" preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
     }
@@ -889,6 +897,10 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         [alert addAction:[UIAlertAction actionWithTitle:@"\u77e5\u9053\u4e86" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
     }
+}
+
+- (void)momentsOriginalQualitySwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *m = [JJRedBagManager sharedManager]; m.momentsOriginalQualityEnabled = sender.on; [m saveSettings]; [self.tableView reloadData];
 }
 
 #pragma mark - Alert Methods

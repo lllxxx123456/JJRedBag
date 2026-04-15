@@ -92,6 +92,7 @@
         _hasShownAdSkipAlert = NO;
         _webBackButtonEnabled = NO;
         _hasShownWebBackAlert = NO;
+        _momentsOriginalQualityEnabled = NO;
     }
     return self;
 }
@@ -172,6 +173,7 @@
     settings[@"hasShownAdSkipAlert"] = @(self.hasShownAdSkipAlert);
     settings[@"webBackButtonEnabled"] = @(self.webBackButtonEnabled);
     settings[@"hasShownWebBackAlert"] = @(self.hasShownWebBackAlert);
+    settings[@"momentsOriginalQualityEnabled"] = @(self.momentsOriginalQualityEnabled);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -257,6 +259,7 @@
         self.hasShownAdSkipAlert = [settings[@"hasShownAdSkipAlert"] boolValue];
         self.webBackButtonEnabled = settings[@"webBackButtonEnabled"] ? [settings[@"webBackButtonEnabled"] boolValue] : YES;
         self.hasShownWebBackAlert = [settings[@"hasShownWebBackAlert"] boolValue];
+        self.momentsOriginalQualityEnabled = [settings[@"momentsOriginalQualityEnabled"] boolValue];
     }
 }
 

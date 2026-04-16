@@ -427,6 +427,57 @@
 @interface WCForwardViewController : UIViewController
 @end
 
+// 朋友圈发布 - 上传单个媒体
+@interface WCUploadMedia : NSObject
+@property (nonatomic) BOOL skipCompress;
+@property (nonatomic) BOOL isEdited;
+@property (retain, nonatomic) NSString *localMid;
+@property (nonatomic) int type;
+@property (nonatomic) int subType;
+@property (nonatomic) long long subMediaType;
+@property (copy, nonatomic) NSString *livePhotoUUID;
+@property (nonatomic) long long livePhotoStillImageTimeMs;
+@property (nonatomic) struct CGSize imgSize;
+@property (nonatomic) long long fileSize;
+@end
+
+// 朋友圈发布 - 整个上传任务
+@interface WCUploadTask : NSObject
+@property (retain, nonatomic) NSMutableArray *mediaList;
+@property (retain, nonatomic) NSString *clientID;
+@property (nonatomic) int type;
+- (void)setOriginal:(BOOL)original;
+@end
+
+// 朋友圈新发布控制器：补充处理上传任务的入口
+@interface WCNewCommitViewController : UIViewController
+- (void)processUploadTask:(id)task;
+- (void)commonUpdateWCUploadTask:(id)task;
+- (void)postImages;
+- (void)OnDone;
+@end
+
+// 视频压缩辅助类
+@interface MMVideoCompressHelper : NSObject
++ (id)getCacheFilePathFrom:(id)a0;
++ (id)getOutputFilePathFrom:(id)a0;
++ (void)exportVideoFromUrl:(id)a0 toOutputUrl:(id)a1 shouldScaleDuration:(BOOL)a2 withBlock:(id /* block */)a3;
+@end
+
+// 压缩视频参数
+@interface CompressVideoArgs : NSObject
+@property (retain, nonatomic) NSURL *url;
+@property (nonatomic) unsigned long long pickerScene;
+@property (nonatomic) BOOL isLivePhoto;
+@property (nonatomic) BOOL isSlowMotion;
+@property (nonatomic) BOOL isEnableHardHEVCEncode;
+@property (retain, nonatomic) NSString *encodeJson;
+@end
+
+// 图片选择控制器（朋友圈相册入口使用的底层 VC）
+@interface ImageSelectorController : UIViewController
+@end
+
 @interface MMMenuItem : UIMenuItem
 @property (nonatomic, strong) id target;
 @property (nonatomic, assign) SEL action;

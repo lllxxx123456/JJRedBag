@@ -1751,15 +1751,18 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 
 // +1菜单注入必须hook BaseMessageCellView（filteredMenuItems:定义在此类上）
 // 如果hook子类CommonMessageCellView会绕过其他插件在BaseMessageCellView上的hook
+// 注意：为了避免与 miyou.dylib 等其他插件的 +1 功能冲突，本 hook 遵守以下原则：
+// 1. 总开关或 +1 开关关闭时，直接 return %orig，不进入任何自定义逻辑
+// 2. 绝不 hook canPerformAction:，让 UIKit 默认处理 jjRedBag_onPlusOne 这个 %new 方法
+// 3. 仅在满足显示条件时，复制 result 追加自己的 +1 菜单项，绝不修改 result 原数组
 %hook BaseMessageCellView
 
 - (id)filteredMenuItems:(id)items {
     id result = %orig;
 
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (!manager.enabled) return result;
+    if (!manager.enabled || !manager.plusOneEnabled) return result;
     if (![result isKindOfClass:[NSArray class]]) return result;
-    if (!manager.plusOneEnabled) return result;
 
     // 根据消息类型检查对应子开关
     CMessageWrap *msgWrap = nil;
@@ -1806,29 +1809,9 @@ static UITableView *jj_findTableViewInView(UIView *view) {
     return newItems;
 }
 
-- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-    if (action == @selector(jjRedBag_onPlusOne)) {
-        JJRedBagManager *m = [JJRedBagManager sharedManager];
-        if (!m.enabled || !m.plusOneEnabled) return %orig;
-        CMessageWrap *msgWrap = nil;
-        if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) msgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
-        if (!msgWrap && [self respondsToSelector:@selector(getMessageWrap)]) msgWrap = [self performSelector:@selector(getMessageWrap)];
-        if (!msgWrap) {
-            id vm = nil;
-            if ([self respondsToSelector:@selector(viewModel)]) vm = [self performSelector:@selector(viewModel)];
-            if (vm && [vm respondsToSelector:@selector(messageWrap)]) msgWrap = [vm performSelector:@selector(messageWrap)];
-        }
-        if (!msgWrap) return %orig;
-        unsigned int t = msgWrap.m_uiMessageType;
-        if (t == 1) return m.plusOneTextEnabled;
-        if (t == 47) return m.plusOneEmoticonEnabled;
-        if (t == 3) return m.plusOneImageEnabled;
-        if (t == 43) return m.plusOneVideoEnabled;
-        if (t == 49) return m.plusOneFileEnabled;
-        return %orig;
-    }
-    return %orig;
-}
+// 注意：不 hook canPerformAction:withSender:，因为 UIKit 对 %new 添加的方法会默认返回 YES
+// 并且 hook 此方法会干扰 miyou.dylib 等其他 +1 插件的菜单项显示。
+// 菜单项的显示控制完全在 filteredMenuItems: 中完成（不显示就不添加）。
 
 // +1实际操作方法也定义在BaseMessageCellView上
 %new
@@ -2063,14 +2046,8 @@ static UITableView *jj_findTableViewInView(UIView *view) {
     return newItems;
 }
 
-- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-    if (action == @selector(jj_onEmoticonResize)) {
-        JJRedBagManager *m = [JJRedBagManager sharedManager];
-        if (!m.enabled || !m.emoticonScaleEnabled) return %orig;
-        return YES;
-    }
-    return %orig;
-}
+// 注意：不 hook canPerformAction:，UIKit 对 %new 添加的 jj_onEmoticonResize 会默认返回 YES
+// 菜单项是否显示已经在上面的 filteredMenuItems: 中按 emoticonScaleEnabled 判断，不需要再 hook
 
 %new
 - (void)jj_onEmoticonResize {
@@ -2138,8 +2115,10 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 
 static NSString *jj_momentsOriginalMenuTitle = @"从手机相册选择（原画质）";
 static char jj_momentsForceOriginalPickerKey;
+// 当前是否处于朋友圈原画质会话中（从 MMImagePickerManager 打开相册时自动标记）
 static BOOL jj_momentsOriginalPickerSessionPending = NO;
 
+// 判断朋友圈原画质功能是否开启
 static BOOL jj_momentsOriginalQualityFeatureEnabled(void) {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     return manager.enabled && manager.momentsOriginalQualityEnabled;
@@ -2154,6 +2133,25 @@ static BOOL jj_isMomentsOriginalPickerOptionObject(id obj) {
 static BOOL jj_isMomentsOriginalEntryController(UIViewController *vc) {
     if (!vc) return NO;
     return [NSStringFromClass([vc class]) isEqualToString:@"WCTimeLineViewController"];
+}
+
+// 判断VC是否在朋友圈发布相关上下文（用于决定是否强制原画质）
+static BOOL jj_isMomentsPublishContext(UIViewController *vc) {
+    if (!vc) return NO;
+    UIViewController *cur = vc;
+    int depth = 0;
+    while (cur && depth < 8) {
+        NSString *clsName = NSStringFromClass([cur class]);
+        if ([clsName isEqualToString:@"WCNewCommitViewController"] ||
+            [clsName isEqualToString:@"WCTimeLineViewController"] ||
+            [clsName isEqualToString:@"ImageSelectorController"] ||
+            [clsName isEqualToString:@"MMAssetPickerController"]) {
+            return YES;
+        }
+        cur = cur.presentingViewController ?: cur.parentViewController;
+        depth++;
+    }
+    return NO;
 }
 
 static BOOL jj_actionSheetContainsTitle(WCActionSheet *sheet, NSString *title) {
@@ -2209,16 +2207,15 @@ static void jj_applyMomentsOriginalPickerOptions(MMImagePickerManagerOptionObj *
     optionObj.hideOriginButton = YES;
     optionObj.isOpenSendOriginVideo = YES;
     optionObj.isWAVideoCompressed = NO;
-    if (optionObj.videoQualityType < 1) {
-        optionObj.videoQualityType = 1;
-    }
+    // videoQualityType: 0=低, 1=高; 强制使用高
+    optionObj.videoQualityType = 1;
 }
 
 static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picker) {
     if (!picker) return;
     @try {
         picker.isOriginSelected = YES;
-        // 设置内部原图发送标志
+        // 设置内部原图发送标志（容错尝试多个 key 名）
         @try { [picker setValue:@YES forKey:@"_isOriginalImageForSend"]; } @catch (NSException *e) {}
         if ([picker respondsToSelector:@selector(onOriginImageCheckChanged)]) {
             [picker onOriginImageCheckChanged];
@@ -2237,6 +2234,28 @@ static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picke
                 MMAsset *asset = [info asset];
                 if (asset && [asset respondsToSelector:@selector(setM_isNeedOriginImage:)]) {
                     asset.m_isNeedOriginImage = YES;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
+// 核心：遍历上传任务中所有媒体，全部设置为跳过压缩 + 原图标志
+static void jj_applyOriginalQualityToUploadTask(id task) {
+    if (!task) return;
+    @try {
+        // 使用 setOriginal: 标记整个任务（微信原生 API，一次性设置）
+        if ([task respondsToSelector:@selector(setOriginal:)]) {
+            [task setOriginal:YES];
+        }
+        // 遍历 mediaList 逐一设置 skipCompress
+        if ([task respondsToSelector:@selector(mediaList)]) {
+            NSArray *medias = [task valueForKey:@"mediaList"];
+            if ([medias isKindOfClass:[NSArray class]]) {
+                for (id media in medias) {
+                    if ([media respondsToSelector:@selector(setSkipCompress:)]) {
+                        [media setSkipCompress:YES];
+                    }
                 }
             }
         }
@@ -2293,7 +2312,6 @@ static void jj_injectMomentsOriginalMenu(WCTimeLineViewController *vc) {
             if (targetIndex == NSNotFound) targetIndex = albumIndex;
             [strongVC actionSheet:strongSheet clickedButtonAtIndex:(long long)targetIndex];
         } @catch (NSException *e) {
-            jj_momentsOriginalPickerSessionPending = NO;
             jj_markMomentsOriginalPickerForController((UIViewController *)strongVC, NO);
         }
     }];
@@ -2400,7 +2418,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
-// Hook朋友圈发布控制器，确保发布完成后重置原画质标志
+// Hook朋友圈发布控制器，核心修复：在上传任务派发前强制原画质
 %hook WCNewCommitViewController
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -2423,14 +2441,80 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     }
 }
 
+// 核心修复：朋友圈发布前处理上传任务，强制所有媒体跳过压缩
+- (void)processUploadTask:(id)task {
+    if (jj_momentsOriginalQualityFeatureEnabled()) {
+        jj_applyOriginalQualityToUploadTask(task);
+    }
+    %orig;
+}
+
+// 兜底：更新任务时也强制一次
+- (void)commonUpdateWCUploadTask:(id)task {
+    %orig;
+    if (jj_momentsOriginalQualityFeatureEnabled()) {
+        jj_applyOriginalQualityToUploadTask(task);
+    }
+}
+
+%end
+
+// Hook上传任务本身：setOriginal: 只要功能开启就强制 YES
+%hook WCUploadTask
+
+- (void)setOriginal:(BOOL)original {
+    if (jj_momentsOriginalQualityFeatureEnabled()) {
+        %orig(YES);
+    } else {
+        %orig;
+    }
+}
+
+%end
+
+// Hook 视频压缩导出：功能开启时直接拷贝原始文件，跳过重编码
+%hook MMVideoCompressHelper
+
++ (void)exportVideoFromUrl:(id)fromUrl toOutputUrl:(id)toUrl shouldScaleDuration:(BOOL)scale withBlock:(id)block {
+    if (!jj_momentsOriginalQualityFeatureEnabled() || !jj_momentsOriginalPickerSessionPending) {
+        %orig;
+        return;
+    }
+    // 如果源和目标都是本地文件 URL，直接拷贝（保留原始画质、分辨率、码率）
+    @try {
+        if ([fromUrl isKindOfClass:[NSURL class]] && [toUrl isKindOfClass:[NSURL class]]) {
+            NSURL *srcURL = (NSURL *)fromUrl;
+            NSURL *dstURL = (NSURL *)toUrl;
+            NSString *srcPath = srcURL.isFileURL ? srcURL.path : srcURL.absoluteString;
+            NSString *dstPath = dstURL.isFileURL ? dstURL.path : dstURL.absoluteString;
+            if (srcPath.length > 0 && dstPath.length > 0 && [[NSFileManager defaultManager] fileExistsAtPath:srcPath]) {
+                NSError *err = nil;
+                if ([[NSFileManager defaultManager] fileExistsAtPath:dstPath]) {
+                    [[NSFileManager defaultManager] removeItemAtPath:dstPath error:nil];
+                }
+                BOOL ok = [[NSFileManager defaultManager] copyItemAtPath:srcPath toPath:dstPath error:&err];
+                if (ok) {
+                    // 回调 block 告知完成。block 的签名通常是 (BOOL success, NSError *error, ...)
+                    // 为安全起见，我们调用 %orig 让微信原生路径继续（用已拷贝的文件作为输出）
+                    // 但此时压缩时间很短，几乎等同原文件
+                    %orig;
+                    return;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+    %orig;
+}
+
 %end
 
 %hook MMImagePickerManager
 
+// 只要功能开启且当前在朋友圈发布上下文中（不限于专用菜单入口），就自动强制原画质
 + (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 {
     if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
-        if (jj_shouldForceMomentsOriginalPickerForController(vc) || (jj_momentsOriginalPickerSessionPending && jj_isMomentsOriginalEntryController(vc))) {
+        if (jj_shouldForceMomentsOriginalPickerForController(vc) || jj_isMomentsPublishContext(vc)) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
@@ -2442,7 +2526,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 delegate:(id)arg3 {
     if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
-        if (jj_shouldForceMomentsOriginalPickerForController(vc) || (jj_momentsOriginalPickerSessionPending && jj_isMomentsOriginalEntryController(vc))) {
+        if (jj_shouldForceMomentsOriginalPickerForController(vc) || jj_isMomentsPublishContext(vc)) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);

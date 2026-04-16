@@ -2235,25 +2235,51 @@ static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picke
     } @catch (NSException *e) {}
 }
 
+// 安全地对 id 目标调用 setter: setter 名+BOOL 参数（通过 NSInvocation，避免 id 下签名错乱）
+static void jj_safeSetBoolProperty(id target, SEL sel, BOOL value) {
+    if (!target || !sel) return;
+    if (![target respondsToSelector:sel]) return;
+    @try {
+        NSMethodSignature *sig = [target methodSignatureForSelector:sel];
+        if (!sig || sig.numberOfArguments < 3) return;
+        const char *argType = [sig getArgumentTypeAtIndex:2];
+        if (!argType) return;
+        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+        [inv setSelector:sel];
+        [inv setTarget:target];
+        // 兼容 BOOL(c/B)、int(i)、long(l) 等整形参数
+        if (argType[0] == 'c' || argType[0] == 'B') {
+            BOOL v = value;
+            [inv setArgument:&v atIndex:2];
+        } else if (argType[0] == 'i') {
+            int v = value ? 1 : 0;
+            [inv setArgument:&v atIndex:2];
+        } else if (argType[0] == 'q' || argType[0] == 'l') {
+            long long v = value ? 1 : 0;
+            [inv setArgument:&v atIndex:2];
+        } else {
+            BOOL v = value;
+            [inv setArgument:&v atIndex:2];
+        }
+        [inv invoke];
+    } @catch (NSException *e) {}
+}
+
 // 核心：遍历上传任务中所有媒体，全部设置为跳过压缩 + 原图标志
 static void jj_applyOriginalQualityToUploadTask(id task) {
     if (!task) return;
     @try {
-        // 使用 setOriginal: 标记整个任务（微信原生 API，一次性设置）
-        if ([task respondsToSelector:@selector(setOriginal:)]) {
-            [task setOriginal:YES];
-        }
+        // 任务级原画质标记（安全调用，避免 id 下签名错乱）
+        jj_safeSetBoolProperty(task, @selector(setOriginal:), YES);
         // 遍历 mediaList 逐一设置 skipCompress
-        if ([task respondsToSelector:@selector(mediaList)]) {
+        @try {
             NSArray *medias = [task valueForKey:@"mediaList"];
             if ([medias isKindOfClass:[NSArray class]]) {
                 for (id media in medias) {
-                    if ([media respondsToSelector:@selector(setSkipCompress:)]) {
-                        [media setSkipCompress:YES];
-                    }
+                    jj_safeSetBoolProperty(media, @selector(setSkipCompress:), YES);
                 }
             }
-        }
+        } @catch (NSException *e) {}
     } @catch (NSException *e) {}
 }
 
@@ -2427,10 +2453,9 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;
-    // 离开发布页面时延迟重置标志，确保后台上传/合成任务也能读到 YES
+    // 离开发布页面时延迟重置全局标志（不捕获 self，避免 controller 被释放后 block 野指针）
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         jj_momentsOriginalPickerSessionPending = NO;
-        jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
     });
 }
 
@@ -2542,18 +2567,9 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
-// 核心压缩点四：MMImageUtil JPEG 重新编码压缩
-// 朋友圈发布阶段对大图会调用此方法做 JPEG 有损压缩。会话中强制 quality=1.0（最高）
-%hook MMImageUtil
-
-+ (id)compressJpegImageData:(id)imageData compressQuality:(double)quality {
-    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
-        return %orig(imageData, 1.0);
-    }
-    return %orig;
-}
-
-%end
+// 注意：之前在此 hook 的 MMImageUtil.compressJpegImageData:compressQuality: 已移除。
+// 原因：强制 quality=1.0 会让本机保存/预览时 JPEG 重编码膨胀到 5.7MB（原 HEIF 仅 1.7MB），
+// 且对上传端实际效果极小——微信服务器会再次压缩。保留默认压缩避免本地缓存异常膨胀。
 
 %hook MMImagePickerManager
 
@@ -2597,9 +2613,13 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
             UIButton *btn = [self valueForKey:@"_templateComposingButton"];
             if (btn) btn.hidden = YES;
         } @catch (NSException *e) {}
-        // 通用查找兜底
+        // 通用查找兜底（weak self，避免 VC 释放后 block 持有野指针）
+        __weak __typeof(self) weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            jj_hideMakeVideoButtonInView(self.view);
+            __strong __typeof(weakSelf) strongSelf = weakSelf;
+            if (strongSelf) {
+                jj_hideMakeVideoButtonInView(strongSelf.view);
+            }
         });
     }
 }

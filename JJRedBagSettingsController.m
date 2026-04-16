@@ -109,46 +109,213 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     NSString *cachedPath = [doc stringByAppendingPathComponent:@"jjredbag_wechat_avatar.png"];
     UIImage *custom = [UIImage imageWithContentsOfFile:customPath];
     UIImage *cached = custom ? nil : [UIImage imageWithContentsOfFile:cachedPath];
-    
+
     // 优先级：自定义头像 > 缓存微信头像 > 占位符
     if (custom) { self.avatarView.image = custom; }
     else if (cached) { self.avatarView.image = cached; }
     else { self.avatarView.image = [self placeholderAvatar]; }
-    
+
     // 加载缓存昵称
     NSString *cachedNick = [[NSUserDefaults standardUserDefaults] stringForKey:@"jj_cached_nickname"];
     self.nameLabel.text = (cachedNick.length > 0) ? cachedNick : @"吉酱助手";
-    
-    // 后台尝试获取最新微信头像和昵称
-    dispatch_async(dispatch_get_global_queue(0, 0), ^{
-        @try {
-            CContactMgr *cm = nil;
-            @try { cm = [[objc_getClass("MMServiceCenter") defaultCenter] getService:objc_getClass("CContactMgr")]; } @catch (NSException *e) {}
-            if (!cm) return;
-            CContact *me = [cm getSelfContact];
-            if (!me) return;
-            
-            NSString *nick = me.m_nsNickName;
-            if (nick.length > 0) {
-                [[NSUserDefaults standardUserDefaults] setObject:nick forKey:@"jj_cached_nickname"];
-                dispatch_async(dispatch_get_main_queue(), ^{ self.nameLabel.text = nick; });
-            }
-            
-            if (!custom) {
-                NSString *url = me.m_nsHeadImgUrl;
-                if (url.length > 0) {
-                    NSData *d = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
-                    if (d) {
-                        UIImage *img = [UIImage imageWithData:d];
-                        if (img) {
-                            [d writeToFile:cachedPath atomically:YES];
-                            dispatch_async(dispatch_get_main_queue(), ^{ self.avatarView.image = img; });
-                        }
-                    }
+
+    // 后台尝试获取最新微信头像和昵称，多种方式兜底
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        [self jj_loadAvatarWithRetries:3 delay:0.5 customPath:customPath cachedPath:cachedPath];
+    });
+}
+
+// 多种方式获取头像，逐级降级
+- (void)jj_loadAvatarWithRetries:(NSInteger)retries delay:(NSTimeInterval)delay customPath:(NSString *)customPath cachedPath:(NSString *)cachedPath {
+    if (retries <= 0) return;
+
+    @try {
+        // 方式1: 通过 MMServiceCenter -> CContactMgr 获取
+        id serviceCenter = nil;
+        @try { serviceCenter = [objc_getClass("MMServiceCenter") defaultCenter]; } @catch (NSException *e) {}
+
+        if (serviceCenter) {
+            id cm = nil;
+            @try { cm = [serviceCenter getService:objc_getClass("CContactMgr")]; } @catch (NSException *e) {}
+
+            if (cm) {
+                CContact *me = nil;
+                @try { me = [cm getSelfContact]; } @catch (NSException *e) {}
+
+                if (me) {
+                    [self jj_applyContactAvatar:me customPath:customPath cachedPath:cachedPath];
+                    return;
                 }
             }
-        } @catch (NSException *e) {}
-    });
+
+            // 方式2: 通过 WCAccountService 获取
+            id accountService = nil;
+            @try { accountService = [serviceCenter getService:objc_getClass("WCAccountService")]; } @catch (NSException *e) {}
+
+            if (accountService) {
+                id accountInfo = nil;
+                @try { accountInfo = [accountService activeAccountInfo]; } @catch (NSException *e) {}
+
+                if (accountInfo) {
+                    NSString *nick = nil;
+                    @try { nick = [accountInfo nickname]; } @catch (NSException *e) {}
+                    @try { nick = [accountInfo getNickName]; } @catch (NSException *e) {}
+                    @try { nick = [accountInfo m_nsNickName]; } @catch (NSException *e) {}
+
+                    if (nick.length > 0) {
+                        [[NSUserDefaults standardUserDefaults] setObject:nick forKey:@"jj_cached_nickname"];
+                        dispatch_async(dispatch_get_main_queue(), ^{ self.nameLabel.text = nick; });
+                    }
+
+                    NSString *headUrl = nil;
+                    @try { headUrl = [accountInfo headImgUrl]; } @catch (NSException *e) {}
+                    @try { headUrl = [accountInfo m_nsHeadImgUrl]; } @catch (NSException *e) {}
+
+                    if (headUrl.length > 0) {
+                        [self jj_downloadAvatarFromURL:headUrl cachedPath:cachedPath];
+                    }
+                    return;
+                }
+            }
+
+            // 方式3: 通过 CContact 直接创建并获取本地头像文件
+            NSString *localAvatarPath = [self jj_findLocalAvatarPath];
+            if (localAvatarPath) {
+                UIImage *avatarImg = [UIImage imageWithContentsOfFile:localAvatarPath];
+                if (avatarImg) {
+                    dispatch_async(dispatch_get_main_queue(), ^{ self.avatarView.image = avatarImg; });
+                    return;
+                }
+            }
+        }
+
+        // 方式4: 通过当前 view controller 层级查找已加载的联系人头像
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIImage *foundAvatar = [self jj_findAvatarFromViewHierarchy];
+            if (foundAvatar && !customPath) {
+                self.avatarView.image = foundAvatar;
+            }
+        });
+    } @catch (NSException *e) {}
+
+    // 如果失败，稍后重试
+    if (retries > 1) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                [self jj_loadAvatarWithRetries:retries - 1 delay:delay * 2 customPath:customPath cachedPath:cachedPath];
+            });
+        });
+    }
+}
+
+// 应用联系人头像
+- (void)jj_applyContactAvatar:(CContact *)me customPath:(NSString *)customPath cachedPath:(NSString *)cachedPath {
+    @try {
+        NSString *nick = me.m_nsNickName;
+        if (nick.length > 0) {
+            [[NSUserDefaults standardUserDefaults] setObject:nick forKey:@"jj_cached_nickname"];
+            dispatch_async(dispatch_get_main_queue(), ^{ self.nameLabel.text = nick; });
+        }
+
+        if (![[NSFileManager defaultManager] fileExistsAtPath:customPath]) {
+            NSString *url = me.m_nsHeadImgUrl;
+            if (url.length > 0) {
+                [self jj_downloadAvatarFromURL:url cachedPath:cachedPath];
+            } else {
+                // 尝试从本地获取头像
+                @try {
+                    UIImage *localAvatar = nil;
+                    if ([me respondsToSelector:@selector(avatarImage)]) {
+                        localAvatar = [me avatarImage];
+                    }
+                    if (!localAvatar && [me respondsToSelector:@selector(getAvatarImage)]) {
+                        localAvatar = [me getAvatarImage];
+                    }
+                    if (localAvatar) {
+                        NSData *d = UIImagePNGRepresentation(localAvatar);
+                        if (d) {
+                            [d writeToFile:cachedPath atomically:YES];
+                            dispatch_async(dispatch_get_main_queue(), ^{ self.avatarView.image = localAvatar; });
+                        }
+                    }
+                } @catch (NSException *e) {}
+            }
+        }
+    } @catch (NSException *e) {}
+}
+
+// 使用 NSURLSession 下载头像（避免主线程阻塞）
+- (void)jj_downloadAvatarFromURL:(NSString *)urlStr cachedPath:(NSString *)cachedPath {
+    if (urlStr.length == 0) return;
+
+    NSURL *url = [NSURL URLWithString:urlStr];
+    if (!url) return;
+
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error || !data || data.length == 0) return;
+        UIImage *img = [UIImage imageWithData:data];
+        if (img) {
+            [data writeToFile:cachedPath atomically:YES];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.avatarView.image = img;
+            });
+        }
+    }];
+    [task resume];
+}
+
+// 查找微信本地头像缓存文件
+- (NSString *)jj_findLocalAvatarPath {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *doc = [paths firstObject];
+    if (!doc) return nil;
+
+    // 尝试常见的头像文件名模式
+    NSArray *candidates = @[
+        [doc stringByAppendingPathComponent:@"avatar/avatar.jpg"],
+        [doc stringByAppendingPathComponent:@"avatar/avatar.png"],
+        [doc stringByAppendingPathComponent:@"avatarImage.jpg"],
+        [doc stringByAppendingPathComponent:@"myAvatar.jpg"],
+        // 通过 AppGroup 共享容器查找（如果存在）
+        [[doc stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Library/avatar.jpg"]
+    ];
+
+    for (NSString *path in candidates) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            return path;
+        }
+    }
+    return nil;
+}
+
+// 从当前视图层级中查找已加载的头像（如设置页的导航栏头像）
+- (UIImage *)jj_findAvatarFromViewHierarchy {
+    UIWindow *window = nil;
+    for (UIWindow *w in [UIApplication sharedApplication].windows) {
+        if (w.isKeyWindow) { window = w; break; }
+    }
+    if (!window) return nil;
+
+    // 遍历 window 中的 view，查找可能是头像的 UIImageView
+    NSMutableArray *views = [NSMutableArray arrayWithObject:window];
+    NSInteger idx = 0;
+    while (idx < views.count) {
+        UIView *v = views[idx++];
+        for (UIView *sub in v.subviews) {
+            [views addObject:sub];
+        }
+        if ([v isKindOfClass:[UIImageView class]]) {
+            UIImageView *iv = (UIImageView *)v;
+            if (iv.image && iv.image.size.width > 20 && iv.image.size.height > 20 &&
+                iv.frame.size.width >= 30 && iv.frame.size.width <= 100 &&
+                iv.frame.size.height >= 30 && iv.frame.size.height <= 100 &&
+                iv.frame.size.width == iv.frame.size.height) {
+                // 大小符合头像特征的圆形图片，很可能就是头像
+                return iv.image;
+            }
+        }
+    }
+    return nil;
 }
 
 - (UIImage *)placeholderAvatar {

@@ -1830,7 +1830,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
     if (action == @selector(jjRedBag_onPlusOne)) {
         JJRedBagManager *m = [JJRedBagManager sharedManager];
-        if (!m.plusOneEnabled) return NO;
+        if (!m.enabled || !m.plusOneEnabled) return %orig;
         CMessageWrap *msgWrap = nil;
         if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) msgWrap = [self performSelector:@selector(getMsgCmessageWrap)];
         if (!msgWrap && [self respondsToSelector:@selector(getMessageWrap)]) msgWrap = [self performSelector:@selector(getMessageWrap)];
@@ -1839,14 +1839,14 @@ static UITableView *jj_findTableViewInView(UIView *view) {
             if ([self respondsToSelector:@selector(viewModel)]) vm = [self performSelector:@selector(viewModel)];
             if (vm && [vm respondsToSelector:@selector(messageWrap)]) msgWrap = [vm performSelector:@selector(messageWrap)];
         }
-        if (!msgWrap) return NO;
+        if (!msgWrap) return %orig;
         unsigned int t = msgWrap.m_uiMessageType;
         if (t == 1) return m.plusOneTextEnabled;
         if (t == 47) return m.plusOneEmoticonEnabled;
         if (t == 3) return m.plusOneImageEnabled;
         if (t == 43) return m.plusOneVideoEnabled;
         if (t == 49) return m.plusOneFileEnabled;
-        return NO;
+        return %orig;
     }
     return %orig;
 }
@@ -2141,10 +2141,14 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
     if (action == @selector(jjRedBag_onPlusOne)) {
-        return [[JJRedBagManager sharedManager] plusOneEnabled];
+        JJRedBagManager *m = [JJRedBagManager sharedManager];
+        if (!m.enabled || !m.plusOneEnabled || !m.plusOneEmoticonEnabled) return %orig;
+        return YES;
     }
     if (action == @selector(jj_onEmoticonResize)) {
-        return [[JJRedBagManager sharedManager] emoticonScaleEnabled];
+        JJRedBagManager *m = [JJRedBagManager sharedManager];
+        if (!m.enabled || !m.emoticonScaleEnabled) return %orig;
+        return YES;
     }
     return %orig;
 }
@@ -2420,8 +2424,8 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    jj_momentsOriginalPickerSessionPending = NO;
-    jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
+    // 不再此处重置标志，避免异步图片处理时标志已被清除
+    // 标志会在 sendSelectedMedia 后通过 WCNewCommitViewController 重置
 }
 
 - (void)showPhotoAlert:(id)arg1 {
@@ -2436,6 +2440,31 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     dispatch_async(dispatch_get_main_queue(), ^{
         jj_injectMomentsOriginalMenu(self);
     });
+}
+
+%end
+
+// Hook朋友圈发布控制器，确保发布完成后重置原画质标志
+%hook WCNewCommitViewController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    // 朋友圈发布页面出现时，延迟重置标志，确保图片处理已完成
+    if (jj_momentsOriginalPickerSessionPending) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_momentsOriginalPickerSessionPending = NO;
+            jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
+        });
+    }
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    %orig;
+    // 离开发布页面时重置标志（用户取消发布）
+    if (jj_momentsOriginalPickerSessionPending) {
+        jj_momentsOriginalPickerSessionPending = NO;
+        jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
+    }
 }
 
 %end
@@ -2489,14 +2518,22 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         jj_prepareOriginalAssetInfosForPicker(self);
     }
     %orig;
+    // 在发送完成后重置标志，允许异步图片处理在标志有效期内完成
+    if (jj_momentsOriginalPickerSessionPending) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_momentsOriginalPickerSessionPending = NO;
+        });
+    }
 }
 
 - (void)OnCancel:(id)arg1 {
     jj_momentsOriginalPickerSessionPending = NO;
+    jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
     %orig;
 }
 
 - (void)onQuit {
+    jj_momentsOriginalPickerSessionPending = NO;
     %orig;
 }
 

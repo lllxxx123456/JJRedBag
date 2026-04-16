@@ -2621,6 +2621,25 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
 }
 
+// 探测上传链路的真实关键方法
+- (void)postImages {
+    JJ_LOG(@"发布", @"postImages 开始  会话=%@",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    %orig;
+}
+
+- (void)onConfirmPostingImages {
+    JJ_LOG(@"发布", @"onConfirmPostingImages 开始  会话=%@",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    %orig;
+}
+
+- (void)validateImagesBeforePosting {
+    JJ_LOG(@"发布", @"validateImagesBeforePosting 开始  会话=%@",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    %orig;
+}
+
 %end
 
 // Hook上传任务本身：仅在原画质会话被插件菜单开启后才强制 YES。官方入口不受影响
@@ -2660,6 +2679,27 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     } else {
         %orig;
     }
+}
+
+// 探测：jpgBuffer 是哪个时机被设置的，设置时会话状态如何。帮助定位真实的图片压缩点
+- (void)setJpgBuffer:(NSData *)jpgBuffer {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"上传", @"WCUploadMedia.setJpgBuffer size=%.2fKB 会话=%@ type=%d",
+               (double)[jpgBuffer length] / 1024.0,
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+               (int)[[self valueForKey:@"type"] intValue]);
+    }
+    %orig;
+}
+
+- (void)setBuffer:(NSData *)buffer {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"上传", @"WCUploadMedia.setBuffer size=%.2fKB 会话=%@ type=%d",
+               (double)[buffer length] / 1024.0,
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+               (int)[[self valueForKey:@"type"] intValue]);
+    }
+    %orig;
 }
 
 %end
@@ -2790,6 +2830,28 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
+    // 一次性探测：dump MMAssetPickerController 类所有 image/asset/buffer/send/compress 相关方法
+    if ([JJDebugConsole isEnabled]) {
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            Class cls = objc_getClass("MMAssetPickerController");
+            NSString *all = jj_dumpMethods(cls);
+            NSArray *parts = [all componentsSeparatedByString:@"; "];
+            NSMutableArray *filtered = [NSMutableArray array];
+            for (NSString *p in parts) {
+                NSString *lower = [p lowercaseString];
+                if ([lower containsString:@"send"] || [lower containsString:@"image"]
+                    || [lower containsString:@"asset"] || [lower containsString:@"buffer"]
+                    || [lower containsString:@"compress"] || [lower containsString:@"origin"]
+                    || [lower containsString:@"done"] || [lower containsString:@"confirm"]
+                    || [lower containsString:@"finish"] || [lower containsString:@"quit"]) {
+                    if (p.length > 0) [filtered addObject:p];
+                }
+            }
+            JJ_LOG(@"选图", @"MMAssetPickerController 选图相关方法: %@",
+                   [filtered componentsJoinedByString:@" | "]);
+        });
+    }
     if (jj_momentsOriginalPickerSessionPending) {
         jj_prepareOriginalAssetInfosForPicker(self);
         // 设置内部标志确保原图发送
@@ -2828,28 +2890,34 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 }
 
 - (void)sendSelectedMedia {
-    JJ_LOG(@"选图", @"MMAssetPickerController.sendSelectedMedia  会话=%@",
+    JJ_LOG(@"选图", @"MMAssetPickerController.sendSelectedMedia 进入 会话=%@",
            jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
     if (jj_momentsOriginalPickerSessionPending) {
         jj_prepareOriginalAssetInfosForPicker(self);
     }
     %orig;
-    // 在发送完成后重置标志，允许异步图片处理在标志有效期内完成
-    if (jj_momentsOriginalPickerSessionPending) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            jj_momentsOriginalPickerSessionPending = NO;
-        });
-    }
+    // 关键：不在这里重置会话标志！会话应一直延续到 WCNewCommitViewController.viewWillDisappear
+    // 之前 5s 延迟重置 + onQuit 立即重置导致会话在进入发布页前就变 NO
+    JJ_LOG(@"选图", @"MMAssetPickerController.sendSelectedMedia 返回 会话=%@",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
 }
 
 - (void)OnCancel:(id)arg1 {
+    // 用户主动取消选图才重置会话
+    if (jj_momentsOriginalPickerSessionPending) {
+        JJ_LOG(@"选图", @"MMAssetPickerController.OnCancel 用户取消选图，重置会话");
+    }
     jj_momentsOriginalPickerSessionPending = NO;
     jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
     %orig;
 }
 
 - (void)onQuit {
-    jj_momentsOriginalPickerSessionPending = NO;
+    // 关键修复：onQuit 在用户"完成选图"时也会被调用（picker 关闭），之前这里立即重置会话
+    // 导致进入 WCNewCommitViewController 时会话已经=NO，所有下游 hook 都失效
+    // 现在不在这里重置，让会话延续到发布页
+    JJ_LOG(@"选图", @"MMAssetPickerController.onQuit 会话=%@ (不重置，延续到发布页)",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
     %orig;
 }
 

@@ -56,20 +56,6 @@ static NSString *jj_dumpProperties(id obj) {
     return out.length > 0 ? out : @"<no readable properties>";
 }
 
-// 反射工具：列出对象类所有 instance method 名（用于探测真实方法名）
-static NSString *jj_dumpMethods(Class cls) {
-    if (!cls) return @"<nil>";
-    NSMutableString *out = [NSMutableString string];
-    unsigned int count = 0;
-    Method *methods = class_copyMethodList(cls, &count);
-    for (unsigned int i = 0; i < count; i++) {
-        SEL sel = method_getName(methods[i]);
-        [out appendFormat:@"%@; ", NSStringFromSelector(sel)];
-    }
-    if (methods) free(methods);
-    return out;
-}
-
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
@@ -2505,30 +2491,6 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     JJ_LOG(@"发布", @"进入朋友圈发布页 WCNewCommitViewController  功能=%@  会话=%@",
            on ? @"ON" : @"OFF",
            jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
-    // 一次性探测：列出 WCNewCommitViewController 真实方法名，定位上传任务入口
-    if ([JJDebugConsole isEnabled]) {
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            Class cls = objc_getClass("WCNewCommitViewController");
-            NSString *all = jj_dumpMethods(cls);
-            // 过滤含 "Upload"/"upload"/"task"/"Task"/"send"/"post" 关键词的方法
-            NSArray *parts = [all componentsSeparatedByString:@"; "];
-            NSMutableArray *filtered = [NSMutableArray array];
-            for (NSString *p in parts) {
-                if ([p rangeOfString:@"pload" options:NSCaseInsensitiveSearch].length > 0
-                    || [p rangeOfString:@"task" options:NSCaseInsensitiveSearch].length > 0
-                    || [p rangeOfString:@"send" options:NSCaseInsensitiveSearch].length > 0
-                    || [p rangeOfString:@"post" options:NSCaseInsensitiveSearch].length > 0
-                    || [p rangeOfString:@"commit" options:NSCaseInsensitiveSearch].length > 0
-                    || [p rangeOfString:@"submit" options:NSCaseInsensitiveSearch].length > 0
-                    || [p rangeOfString:@"OnDone" options:NSCaseInsensitiveSearch].length > 0) {
-                    if (p.length > 0) [filtered addObject:p];
-                }
-            }
-            JJ_LOG(@"发布", @"WCNewCommitViewController 上传相关方法: %@",
-                   [filtered componentsJoinedByString:@" | "]);
-        });
-    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -2544,37 +2506,9 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)processUploadTask:(id)task {
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
     BOOL session = jj_momentsOriginalPickerSessionPending;
-    @try {
-        NSArray *medias = [task respondsToSelector:@selector(mediaList)] ? [task valueForKey:@"mediaList"] : nil;
-        JJ_LOG(@"上传", @"processUploadTask: 功能=%@ 会话=%@  task=%@  mediaList数=%lu",
-               on ? @"ON" : @"OFF",
-               session ? @"YES" : @"NO",
-               NSStringFromClass([task class]) ?: @"nil",
-               (unsigned long)(medias.count));
-        NSInteger idx = 0;
-        for (id media in medias) {
-            NSString *mCls = NSStringFromClass([media class]) ?: @"?";
-            id skipC = nil, original = nil, path = nil;
-            @try { skipC = [media valueForKey:@"skipCompress"]; } @catch(NSException *e){}
-            @try { original = [media valueForKey:@"original"]; } @catch(NSException *e){}
-            @try { path = [media valueForKey:@"path"]; } @catch(NSException *e){}
-            unsigned long long sz = 0;
-            if ([path isKindOfClass:[NSString class]] && [(NSString *)path length] > 0) {
-                NSDictionary *a = [[NSFileManager defaultManager] attributesOfItemAtPath:(NSString *)path error:nil];
-                sz = [a[NSFileSize] unsignedLongLongValue];
-            }
-            JJ_LOG(@"上传", @"  [%ld] %@  skipCompress=%@  original=%@  size=%.2fMB  path=%@",
-                   (long)idx, mCls,
-                   [skipC boolValue] ? @"YES" : @"NO",
-                   [original boolValue] ? @"YES" : @"NO",
-                   (double)sz / (1024.0 * 1024.0),
-                   (path ?: @"nil"));
-            idx++;
-        }
-    } @catch (NSException *e) {}
     if (on && session) {
         jj_applyOriginalQualityToUploadTask(task);
-        JJ_LOG(@"上传", @"已对 %lu 个媒体应用 skipCompress=YES + setOriginal:YES",
+        JJ_LOG(@"上传", @"processUploadTask: 已强制 %lu 个媒体 skipCompress=YES + setOriginal:YES",
                (unsigned long)[[task valueForKey:@"mediaList"] count]);
     }
     %orig;
@@ -2587,27 +2521,24 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     BOOL session = jj_momentsOriginalPickerSessionPending;
     if (on && session) {
         jj_applyOriginalQualityToUploadTask(task);
-    }
-    if ([JJDebugConsole isEnabled]) {
-        JJ_LOG(@"上传", @"commonUpdateWCUploadTask: 功能=%@ 会话=%@  task=%@",
-               on ? @"ON" : @"OFF",
-               session ? @"YES" : @"NO",
-               NSStringFromClass([task class]) ?: @"nil");
-        JJ_LOG(@"上传", @"  task全属性: %@", jj_dumpProperties(task));
-        @try {
-            NSArray *medias = nil;
-            if ([task respondsToSelector:@selector(mediaList)]) {
-                medias = [task valueForKey:@"mediaList"];
-            }
-            NSInteger idx = 0;
-            for (id media in medias) {
-                JJ_LOG(@"上传", @"  media[%ld] %@: %@",
-                       (long)idx,
-                       NSStringFromClass([media class]) ?: @"?",
-                       jj_dumpProperties(media));
-                idx++;
-            }
-        } @catch (NSException *e) {}
+        if ([JJDebugConsole isEnabled]) {
+            @try {
+                NSArray *medias = [task respondsToSelector:@selector(mediaList)] ? [task valueForKey:@"mediaList"] : nil;
+                NSInteger idx = 0;
+                for (id media in medias) {
+                    id skipC = [media valueForKey:@"skipCompress"];
+                    id buf = [media valueForKey:@"buffer"];
+                    id jpgBuf = nil;
+                    @try { jpgBuf = [media valueForKey:@"jpgBuffer"]; } @catch (NSException *e) {}
+                    JJ_LOG(@"上传", @"  media[%ld] skipCompress=%@ buffer=%.2fKB jpgBuffer=%.2fKB",
+                           (long)idx,
+                           [skipC boolValue] ? @"YES" : @"NO",
+                           [buf isKindOfClass:[NSData class]] ? ((double)[(NSData *)buf length] / 1024.0) : 0.0,
+                           [jpgBuf isKindOfClass:[NSData class]] ? ((double)[(NSData *)jpgBuf length] / 1024.0) : 0.0);
+                    idx++;
+                }
+            } @catch (NSException *e) {}
+        }
     }
 }
 
@@ -2681,11 +2612,12 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     }
 }
 
-// 探测：jpgBuffer 是哪个时机被设置的，设置时会话状态如何。帮助定位真实的图片压缩点
+// 监控 buffer 写入（只记录有意义的大小，过滤 0KB 清理操作和 <10KB 小缩略图）
 - (void)setJpgBuffer:(NSData *)jpgBuffer {
-    if ([JJDebugConsole isEnabled]) {
+    NSUInteger len = [jpgBuffer length];
+    if ([JJDebugConsole isEnabled] && len >= 10240) {
         JJ_LOG(@"上传", @"WCUploadMedia.setJpgBuffer size=%.2fKB 会话=%@ type=%d",
-               (double)[jpgBuffer length] / 1024.0,
+               (double)len / 1024.0,
                jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
                (int)[[self valueForKey:@"type"] intValue]);
     }
@@ -2693,9 +2625,10 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 }
 
 - (void)setBuffer:(NSData *)buffer {
-    if ([JJDebugConsole isEnabled]) {
+    NSUInteger len = [buffer length];
+    if ([JJDebugConsole isEnabled] && len >= 10240) {
         JJ_LOG(@"上传", @"WCUploadMedia.setBuffer size=%.2fKB 会话=%@ type=%d",
-               (double)[buffer length] / 1024.0,
+               (double)len / 1024.0,
                jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
                (int)[[self valueForKey:@"type"] intValue]);
     }
@@ -2719,8 +2652,15 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
     }
     if ([JJDebugConsole isEnabled]) {
-        JJ_LOG(@"视频", @"VideoEncodeParams.adjustIfNeeded 会话=%@", active ? @"YES" : @"NO");
-        JJ_LOG(@"视频", @"  全属性: %@", jj_dumpProperties(self));
+        @try {
+            JJ_LOG(@"视频", @"VideoEncodeParams.adjustIfNeeded 会话=%@ skipVideoCompress=%@ %gx%g fps=%g bitrate=%.0fkbps",
+                   active ? @"YES" : @"NO",
+                   [[self valueForKey:@"skipVideoCompress"] boolValue] ? @"YES" : @"NO",
+                   [[self valueForKey:@"width"] doubleValue],
+                   [[self valueForKey:@"height"] doubleValue],
+                   [[self valueForKey:@"fps"] doubleValue],
+                   [[self valueForKey:@"videoBitrate"] doubleValue]);
+        } @catch (NSException *e) {}
     }
 }
 
@@ -2830,28 +2770,6 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    // 一次性探测：dump MMAssetPickerController 类所有 image/asset/buffer/send/compress 相关方法
-    if ([JJDebugConsole isEnabled]) {
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            Class cls = objc_getClass("MMAssetPickerController");
-            NSString *all = jj_dumpMethods(cls);
-            NSArray *parts = [all componentsSeparatedByString:@"; "];
-            NSMutableArray *filtered = [NSMutableArray array];
-            for (NSString *p in parts) {
-                NSString *lower = [p lowercaseString];
-                if ([lower containsString:@"send"] || [lower containsString:@"image"]
-                    || [lower containsString:@"asset"] || [lower containsString:@"buffer"]
-                    || [lower containsString:@"compress"] || [lower containsString:@"origin"]
-                    || [lower containsString:@"done"] || [lower containsString:@"confirm"]
-                    || [lower containsString:@"finish"] || [lower containsString:@"quit"]) {
-                    if (p.length > 0) [filtered addObject:p];
-                }
-            }
-            JJ_LOG(@"选图", @"MMAssetPickerController 选图相关方法: %@",
-                   [filtered componentsJoinedByString:@" | "]);
-        });
-    }
     if (jj_momentsOriginalPickerSessionPending) {
         jj_prepareOriginalAssetInfosForPicker(self);
         // 设置内部标志确保原图发送

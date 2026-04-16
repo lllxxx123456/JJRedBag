@@ -2318,6 +2318,32 @@ static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picke
     } @catch (NSException *e) {}
 }
 
+// 递归隐藏包含"制作视频"文本的按钮/视图，避免遮挡原画质文件大小显示
+static void jj_hideMakeVideoButtonInView(UIView *view) {
+    if (!view) return;
+    for (UIView *sub in view.subviews) {
+        // 检查 UIButton
+        if ([sub isKindOfClass:[UIButton class]]) {
+            UIButton *btn = (UIButton *)sub;
+            NSString *title = [btn titleForState:UIControlStateNormal];
+            if (title && ([title containsString:@"制作视频"] || [title containsString:@"视频"])) {
+                btn.hidden = YES;
+                continue;
+            }
+        }
+        // 检查 UILabel
+        if ([sub isKindOfClass:[UILabel class]]) {
+            UILabel *label = (UILabel *)sub;
+            if (label.text && [label.text containsString:@"制作视频"]) {
+                // 隐藏 label 所在的父容器
+                sub.superview.hidden = YES;
+                continue;
+            }
+        }
+        jj_hideMakeVideoButtonInView(sub);
+    }
+}
+
 static void jj_injectMomentsOriginalMenu(WCTimeLineViewController *vc) {
     if (!jj_momentsOriginalQualityFeatureEnabled() || !vc) return;
     WCActionSheet *sheet = [objc_getClass("WCActionSheet") getCurrentShowingActionSheet];
@@ -2503,6 +2529,17 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
     if (jj_momentsOriginalPickerSessionPending) {
         jj_prepareOriginalAssetInfosForPicker(self);
+        // 隐藏"制作视频"按钮，避免遮挡原画质文件大小显示
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            jj_hideMakeVideoButtonInView(self.view);
+        });
+    }
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    if (jj_momentsOriginalPickerSessionPending) {
+        jj_hideMakeVideoButtonInView(self.view);
     }
 }
 

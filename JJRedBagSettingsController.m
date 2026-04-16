@@ -148,37 +148,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
                 }
             }
 
-            // 方式2: 通过 WCAccountService 获取
-            id accountService = nil;
-            @try { accountService = [serviceCenter getService:objc_getClass("WCAccountService")]; } @catch (NSException *e) {}
-
-            if (accountService) {
-                id accountInfo = nil;
-                @try { accountInfo = [accountService activeAccountInfo]; } @catch (NSException *e) {}
-
-                if (accountInfo) {
-                    NSString *nick = nil;
-                    @try { nick = [accountInfo nickname]; } @catch (NSException *e) {}
-                    @try { nick = [accountInfo getNickName]; } @catch (NSException *e) {}
-                    @try { nick = [accountInfo m_nsNickName]; } @catch (NSException *e) {}
-
-                    if (nick.length > 0) {
-                        [[NSUserDefaults standardUserDefaults] setObject:nick forKey:@"jj_cached_nickname"];
-                        dispatch_async(dispatch_get_main_queue(), ^{ self.nameLabel.text = nick; });
-                    }
-
-                    NSString *headUrl = nil;
-                    @try { headUrl = [accountInfo headImgUrl]; } @catch (NSException *e) {}
-                    @try { headUrl = [accountInfo m_nsHeadImgUrl]; } @catch (NSException *e) {}
-
-                    if (headUrl.length > 0) {
-                        [self jj_downloadAvatarFromURL:headUrl cachedPath:cachedPath];
-                    }
-                    return;
-                }
-            }
-
-            // 方式3: 通过 CContact 直接创建并获取本地头像文件
+            // 方式2: 通过 CContact 直接创建并获取本地头像文件
             NSString *localAvatarPath = [self jj_findLocalAvatarPath];
             if (localAvatarPath) {
                 UIImage *avatarImg = [UIImage imageWithContentsOfFile:localAvatarPath];
@@ -189,7 +159,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             }
         }
 
-        // 方式4: 通过当前 view controller 层级查找已加载的联系人头像
+        // 方式3: 通过当前 view controller 层级查找已加载的联系人头像
         dispatch_async(dispatch_get_main_queue(), ^{
             UIImage *foundAvatar = [self jj_findAvatarFromViewHierarchy];
             if (foundAvatar && !customPath) {
@@ -221,24 +191,6 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
             NSString *url = me.m_nsHeadImgUrl;
             if (url.length > 0) {
                 [self jj_downloadAvatarFromURL:url cachedPath:cachedPath];
-            } else {
-                // 尝试从本地获取头像
-                @try {
-                    UIImage *localAvatar = nil;
-                    if ([me respondsToSelector:@selector(avatarImage)]) {
-                        localAvatar = [me avatarImage];
-                    }
-                    if (!localAvatar && [me respondsToSelector:@selector(getAvatarImage)]) {
-                        localAvatar = [me getAvatarImage];
-                    }
-                    if (localAvatar) {
-                        NSData *d = UIImagePNGRepresentation(localAvatar);
-                        if (d) {
-                            [d writeToFile:cachedPath atomically:YES];
-                            dispatch_async(dispatch_get_main_queue(), ^{ self.avatarView.image = localAvatar; });
-                        }
-                    }
-                } @catch (NSException *e) {}
             }
         }
     } @catch (NSException *e) {}

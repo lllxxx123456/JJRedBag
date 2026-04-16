@@ -16,46 +16,6 @@
     } \
 } while (0)
 
-// 反射工具：dump对象所有可读属性，用于调试器观察未知字段
-static NSString *jj_dumpProperties(id obj) {
-    if (!obj) return @"<nil>";
-    NSMutableString *out = [NSMutableString string];
-    Class cls = [obj class];
-    int depth = 0;
-    while (cls && cls != [NSObject class] && depth < 5) {
-        unsigned int count = 0;
-        objc_property_t *props = class_copyPropertyList(cls, &count);
-        for (unsigned int i = 0; i < count; i++) {
-            const char *name = property_getName(props[i]);
-            NSString *propName = [NSString stringWithUTF8String:name];
-            id v = nil;
-            @try { v = [obj valueForKey:propName]; } @catch (NSException *e) { continue; }
-            if (v == nil) continue;
-            NSString *desc;
-            if ([v isKindOfClass:[NSString class]]) {
-                NSUInteger len = [(NSString *)v length];
-                desc = len > 80 ? [[(NSString *)v substringToIndex:77] stringByAppendingString:@"..."] : v;
-            } else if ([v isKindOfClass:[NSNumber class]]) {
-                desc = [(NSNumber *)v stringValue];
-            } else if ([v isKindOfClass:[NSArray class]]) {
-                desc = [NSString stringWithFormat:@"<%@ count=%lu>", NSStringFromClass([v class]), (unsigned long)[(NSArray *)v count]];
-            } else if ([v isKindOfClass:[NSDictionary class]]) {
-                desc = [NSString stringWithFormat:@"<%@ count=%lu>", NSStringFromClass([v class]), (unsigned long)[(NSDictionary *)v count]];
-            } else if ([v isKindOfClass:[NSData class]]) {
-                desc = [NSString stringWithFormat:@"<NSData %lu bytes>", (unsigned long)[(NSData *)v length]];
-            } else {
-                desc = [NSString stringWithFormat:@"<%@>", NSStringFromClass([v class])];
-            }
-            [out appendFormat:@"%@=%@; ", propName, desc];
-        }
-        if (props) free(props);
-        cls = [cls superclass];
-        if (cls == [UIResponder class] || cls == [UIView class] || cls == [UIViewController class]) break;
-        depth++;
-    }
-    return out.length > 0 ? out : @"<no readable properties>";
-}
-
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）

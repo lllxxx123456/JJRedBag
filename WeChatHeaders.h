@@ -258,17 +258,23 @@
 - (id)JSONDictionary;
 @end
 
-@interface CommonMessageCellView : UIView
+@interface BaseMessageCellView : UIView
 @property (readonly, nonatomic) id viewModel;
 - (id)operationMenuItems;
 - (id)filteredMenuItems:(id)items;
-- (void)onLongTouch;
-- (struct CGRect)showRectForMenuController;
-- (id)getViewController;
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender;
+- (id)generateOperationMenu;
+- (void)showOperationMenu;
 - (id)getMsgCmessageWrap;
 - (void)jjRedBag_onPlusOne;
 - (void)jjRedBag_showPlusOneUnsupported:(NSString *)reason;
 - (void)jjRedBag_scrollChatToBottom;
+@end
+
+@interface CommonMessageCellView : BaseMessageCellView
+- (void)onLongTouch;
+- (struct CGRect)showRectForMenuController;
+- (id)getViewController;
 @end
 
 @interface CommonMessageViewModel : NSObject

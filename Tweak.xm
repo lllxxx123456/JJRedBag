@@ -2493,11 +2493,10 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         NSInteger idx = 0;
         for (id media in medias) {
             NSString *mCls = NSStringFromClass([media class]) ?: @"?";
-            id skipC = nil, original = nil, path = nil, thumbPath = nil;
+            id skipC = nil, original = nil, path = nil;
             @try { skipC = [media valueForKey:@"skipCompress"]; } @catch(NSException *e){}
             @try { original = [media valueForKey:@"original"]; } @catch(NSException *e){}
             @try { path = [media valueForKey:@"path"]; } @catch(NSException *e){}
-            @try { thumbPath = [media valueForKey:@"thumbPath"]; } @catch(NSException *e){}
             unsigned long long sz = 0;
             if ([path isKindOfClass:[NSString class]] && [(NSString *)path length] > 0) {
                 NSDictionary *a = [[NSFileManager defaultManager] attributesOfItemAtPath:(NSString *)path error:nil];

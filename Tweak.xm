@@ -2130,11 +2130,6 @@ static BOOL jj_isMomentsOriginalPickerOptionObject(id obj) {
     return optionObjClass && [obj isKindOfClass:optionObjClass];
 }
 
-static BOOL jj_isMomentsOriginalEntryController(UIViewController *vc) {
-    if (!vc) return NO;
-    return [NSStringFromClass([vc class]) isEqualToString:@"WCTimeLineViewController"];
-}
-
 // 判断VC是否在朋友圈发布相关上下文（用于决定是否强制原画质）
 static BOOL jj_isMomentsPublishContext(UIViewController *vc) {
     if (!vc) return NO;
@@ -2421,29 +2416,28 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 // Hook朋友圈发布控制器，核心修复：在上传任务派发前强制原画质
 %hook WCNewCommitViewController
 
+// 朋友圈发布页面出现时保持会话开启（不做3秒自动重置），确保发布过程中所有
+// 图片/视频压缩 hook（VideoEncodeParams、MMImageUtil、MMVideoCompressHelper 等）都能生效
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    // 朋友圈发布页面出现时，延迟重置标志，确保图片处理已完成
-    if (jj_momentsOriginalPickerSessionPending) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            jj_momentsOriginalPickerSessionPending = NO;
-            jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
-        });
+    if (jj_momentsOriginalQualityFeatureEnabled()) {
+        jj_momentsOriginalPickerSessionPending = YES;
     }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;
-    // 离开发布页面时重置标志（用户取消发布）
-    if (jj_momentsOriginalPickerSessionPending) {
+    // 离开发布页面时延迟重置标志，确保后台上传/合成任务也能读到 YES
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         jj_momentsOriginalPickerSessionPending = NO;
         jj_markMomentsOriginalPickerForController((UIViewController *)self, NO);
-    }
+    });
 }
 
 // 核心修复：朋友圈发布前处理上传任务，强制所有媒体跳过压缩
 - (void)processUploadTask:(id)task {
     if (jj_momentsOriginalQualityFeatureEnabled()) {
+        jj_momentsOriginalPickerSessionPending = YES;
         jj_applyOriginalQualityToUploadTask(task);
     }
     %orig;
@@ -2455,6 +2449,14 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     if (jj_momentsOriginalQualityFeatureEnabled()) {
         jj_applyOriginalQualityToUploadTask(task);
     }
+}
+
+// 用户点击"发布"时同步激活会话（防止先前被重置）
+- (void)OnDone {
+    if (jj_momentsOriginalQualityFeatureEnabled()) {
+        jj_momentsOriginalPickerSessionPending = YES;
+    }
+    %orig;
 }
 
 %end
@@ -2472,38 +2474,83 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
-// Hook 视频压缩导出：功能开启时直接拷贝原始文件，跳过重编码
-%hook MMVideoCompressHelper
+// 注意：不再 hook MMVideoCompressHelper.exportVideoFromUrl:，因为已经在更底层的
+// VideoEncodeParams.adjustIfNeeded 和 VideoEncodeTask.exportAsynchronouslyWithCompletionHandler:
+// 处强制 skipVideoCompress=YES，效果更精确且副作用更小
 
-+ (void)exportVideoFromUrl:(id)fromUrl toOutputUrl:(id)toUrl shouldScaleDuration:(BOOL)scale withBlock:(id)block {
-    if (!jj_momentsOriginalQualityFeatureEnabled() || !jj_momentsOriginalPickerSessionPending) {
-        %orig;
+// 核心压缩点一：视频编码参数级的跳过压缩开关（发布阶段最底层）
+// 在朋友圈原画质会话中，强制 skipVideoCompress=YES，让微信走 MMVideoNotCompressTask 分支
+%hook VideoEncodeParams
+
+- (void)adjustIfNeeded {
+    %orig;
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+        @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+    }
+}
+
+- (void)_adjustSizeToStandardForMoments {
+    // 功能开启时跳过朋友圈标准尺寸的向下调整，保留原始分辨率
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+        @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
         return;
     }
-    // 如果源和目标都是本地文件 URL，直接拷贝（保留原始画质、分辨率、码率）
-    @try {
-        if ([fromUrl isKindOfClass:[NSURL class]] && [toUrl isKindOfClass:[NSURL class]]) {
-            NSURL *srcURL = (NSURL *)fromUrl;
-            NSURL *dstURL = (NSURL *)toUrl;
-            NSString *srcPath = srcURL.isFileURL ? srcURL.path : srcURL.absoluteString;
-            NSString *dstPath = dstURL.isFileURL ? dstURL.path : dstURL.absoluteString;
-            if (srcPath.length > 0 && dstPath.length > 0 && [[NSFileManager defaultManager] fileExistsAtPath:srcPath]) {
-                NSError *err = nil;
-                if ([[NSFileManager defaultManager] fileExistsAtPath:dstPath]) {
-                    [[NSFileManager defaultManager] removeItemAtPath:dstPath error:nil];
-                }
-                BOOL ok = [[NSFileManager defaultManager] copyItemAtPath:srcPath toPath:dstPath error:&err];
-                if (ok) {
-                    // 回调 block 告知完成。block 的签名通常是 (BOOL success, NSError *error, ...)
-                    // 为安全起见，我们调用 %orig 让微信原生路径继续（用已拷贝的文件作为输出）
-                    // 但此时压缩时间很短，几乎等同原文件
-                    %orig;
-                    return;
-                }
-            }
-        }
-    } @catch (NSException *e) {}
     %orig;
+}
+
+%end
+
+// 核心压缩点二：WCSightVideoCompositor 朋友圈视频合成器入口
+// 在启动合成前，强制把 task.params.skipVideoCompress 设为 YES
+%hook WCSightVideoCompositor
+
++ (void)startWithTask:(id)task resultBlock:(id)resultBlock {
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending && task) {
+        @try {
+            id params = nil;
+            if ([task respondsToSelector:@selector(params)]) {
+                params = [task performSelector:@selector(params)];
+            }
+            if (params) {
+                @try { [params setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+            }
+        } @catch (NSException *e) {}
+    }
+    %orig;
+}
+
+%end
+
+// 核心压缩点三：VideoEncodeTask 通用编码任务开始导出前
+// 任何从 chat 或 moments 走 VideoEncodeTask 的路径，在朋友圈原画质会话中都跳过压缩
+%hook VideoEncodeTask
+
+- (void)exportAsynchronouslyWithCompletionHandler:(id)handler {
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+        @try {
+            id params = nil;
+            if ([self respondsToSelector:@selector(params)]) {
+                params = [self performSelector:@selector(params)];
+            }
+            if (params) {
+                @try { [params setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+            }
+        } @catch (NSException *e) {}
+    }
+    %orig;
+}
+
+%end
+
+// 核心压缩点四：MMImageUtil JPEG 重新编码压缩
+// 朋友圈发布阶段对大图会调用此方法做 JPEG 有损压缩。会话中强制 quality=1.0（最高）
+%hook MMImageUtil
+
++ (id)compressJpegImageData:(id)imageData compressQuality:(double)quality {
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+        return %orig(imageData, 1.0);
+    }
+    return %orig;
 }
 
 %end

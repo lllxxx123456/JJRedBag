@@ -474,6 +474,42 @@
 @property (retain, nonatomic) NSString *encodeJson;
 @end
 
+// 视频编码参数（发布阶段最底层压缩开关）
+@interface VideoEncodeParams : NSObject
+@property (nonatomic) BOOL skipVideoCompress;
+@property (nonatomic) BOOL isEnableHardHEVCEncode;
+@property (nonatomic) float width;
+@property (nonatomic) float height;
+@property (nonatomic) double fps;
+@property (nonatomic) float videoBitrate;
+@property (nonatomic) float audioBitrate;
+@property (nonatomic) unsigned long long scene;
+- (void)adjustIfNeeded;
+- (void)_adjustSizeToStandardForMoments;
+@end
+
+// 视频编码任务（chat / moments 通用）
+@interface VideoEncodeTask : NSObject
+@property (retain, nonatomic) VideoEncodeParams *params;
+@property (copy, nonatomic) NSURL *inputPath;
+@property (copy, nonatomic) NSURL *outputPath;
+@property (nonatomic) BOOL isEncoding;
+- (void)exportAsynchronouslyWithCompletionHandler:(id /* block */)a0;
+@end
+
+// 朋友圈视频合成器（发布阶段视频入口）
+@interface WCSightVideoCompositor : NSObject
++ (void)startWithTask:(id)a0 resultBlock:(id /* block */)a1;
+@end
+
+// 微信图片工具类（JPEG 压缩等）
+@interface MMImageUtil : NSObject
++ (id)compressJpegImageData:(id)a0 compressQuality:(double)a1;
++ (id)resizeToNormalCompressImage:(id)a0 CompressConfig:(id)a1;
++ (id)getNormalCompressedImage:(id)a0 CompressConfig:(id)a1;
++ (id)getDataCompressedImage:(id)a0 CompressConfig:(id)a1;
+@end
+
 // 图片选择控制器（朋友圈相册入口使用的底层 VC）
 @interface ImageSelectorController : UIViewController
 @end

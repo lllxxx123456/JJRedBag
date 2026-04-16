@@ -16,6 +16,60 @@
     } \
 } while (0)
 
+// 反射工具：dump对象所有可读属性，用于调试器观察未知字段
+static NSString *jj_dumpProperties(id obj) {
+    if (!obj) return @"<nil>";
+    NSMutableString *out = [NSMutableString string];
+    Class cls = [obj class];
+    int depth = 0;
+    while (cls && cls != [NSObject class] && depth < 5) {
+        unsigned int count = 0;
+        objc_property_t *props = class_copyPropertyList(cls, &count);
+        for (unsigned int i = 0; i < count; i++) {
+            const char *name = property_getName(props[i]);
+            NSString *propName = [NSString stringWithUTF8String:name];
+            id v = nil;
+            @try { v = [obj valueForKey:propName]; } @catch (NSException *e) { continue; }
+            if (v == nil) continue;
+            NSString *desc;
+            if ([v isKindOfClass:[NSString class]]) {
+                NSUInteger len = [(NSString *)v length];
+                desc = len > 80 ? [[(NSString *)v substringToIndex:77] stringByAppendingString:@"..."] : v;
+            } else if ([v isKindOfClass:[NSNumber class]]) {
+                desc = [(NSNumber *)v stringValue];
+            } else if ([v isKindOfClass:[NSArray class]]) {
+                desc = [NSString stringWithFormat:@"<%@ count=%lu>", NSStringFromClass([v class]), (unsigned long)[(NSArray *)v count]];
+            } else if ([v isKindOfClass:[NSDictionary class]]) {
+                desc = [NSString stringWithFormat:@"<%@ count=%lu>", NSStringFromClass([v class]), (unsigned long)[(NSDictionary *)v count]];
+            } else if ([v isKindOfClass:[NSData class]]) {
+                desc = [NSString stringWithFormat:@"<NSData %lu bytes>", (unsigned long)[(NSData *)v length]];
+            } else {
+                desc = [NSString stringWithFormat:@"<%@>", NSStringFromClass([v class])];
+            }
+            [out appendFormat:@"%@=%@; ", propName, desc];
+        }
+        if (props) free(props);
+        cls = [cls superclass];
+        if (cls == [UIResponder class] || cls == [UIView class] || cls == [UIViewController class]) break;
+        depth++;
+    }
+    return out.length > 0 ? out : @"<no readable properties>";
+}
+
+// 反射工具：列出对象类所有 instance method 名（用于探测真实方法名）
+static NSString *jj_dumpMethods(Class cls) {
+    if (!cls) return @"<nil>";
+    NSMutableString *out = [NSMutableString string];
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    for (unsigned int i = 0; i < count; i++) {
+        SEL sel = method_getName(methods[i]);
+        [out appendFormat:@"%@; ", NSStringFromSelector(sel)];
+    }
+    if (methods) free(methods);
+    return out;
+}
+
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
 // 缓存WCPayLogicMgr实例（strong引用，微信服务为单例不会造成泄漏）
@@ -2470,6 +2524,30 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     JJ_LOG(@"发布", @"进入朋友圈发布页 WCNewCommitViewController  原画质=%@  会话=%@",
            on ? @"ON" : @"OFF",
            jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    // 一次性探测：列出 WCNewCommitViewController 真实方法名，定位上传任务入口
+    if ([JJDebugConsole isEnabled]) {
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            Class cls = objc_getClass("WCNewCommitViewController");
+            NSString *all = jj_dumpMethods(cls);
+            // 过滤含 "Upload"/"upload"/"task"/"Task"/"send"/"post" 关键词的方法
+            NSArray *parts = [all componentsSeparatedByString:@"; "];
+            NSMutableArray *filtered = [NSMutableArray array];
+            for (NSString *p in parts) {
+                if ([p rangeOfString:@"pload" options:NSCaseInsensitiveSearch].length > 0
+                    || [p rangeOfString:@"task" options:NSCaseInsensitiveSearch].length > 0
+                    || [p rangeOfString:@"send" options:NSCaseInsensitiveSearch].length > 0
+                    || [p rangeOfString:@"post" options:NSCaseInsensitiveSearch].length > 0
+                    || [p rangeOfString:@"commit" options:NSCaseInsensitiveSearch].length > 0
+                    || [p rangeOfString:@"submit" options:NSCaseInsensitiveSearch].length > 0
+                    || [p rangeOfString:@"OnDone" options:NSCaseInsensitiveSearch].length > 0) {
+                    if (p.length > 0) [filtered addObject:p];
+                }
+            }
+            JJ_LOG(@"发布", @"WCNewCommitViewController 上传相关方法: %@",
+                   [filtered componentsJoinedByString:@" | "]);
+        });
+    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -2523,9 +2601,29 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 // 兜底：更新任务时也强制一次
 - (void)commonUpdateWCUploadTask:(id)task {
     %orig;
-    if (jj_momentsOriginalQualityFeatureEnabled()) {
+    BOOL on = jj_momentsOriginalQualityFeatureEnabled();
+    if (on) {
         jj_applyOriginalQualityToUploadTask(task);
-        JJ_LOG(@"上传", @"commonUpdateWCUploadTask: 再次强制原画质标记");
+    }
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"上传", @"commonUpdateWCUploadTask: 原画质=%@  task=%@",
+               on ? @"ON" : @"OFF",
+               NSStringFromClass([task class]) ?: @"nil");
+        JJ_LOG(@"上传", @"  task全属性: %@", jj_dumpProperties(task));
+        @try {
+            NSArray *medias = nil;
+            if ([task respondsToSelector:@selector(mediaList)]) {
+                medias = [task valueForKey:@"mediaList"];
+            }
+            NSInteger idx = 0;
+            for (id media in medias) {
+                JJ_LOG(@"上传", @"  media[%ld] %@: %@",
+                       (long)idx,
+                       NSStringFromClass([media class]) ?: @"?",
+                       jj_dumpProperties(media));
+                idx++;
+            }
+        } @catch (NSException *e) {}
     }
 }
 
@@ -2556,6 +2654,26 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
+// 关键：从最底层接管 WCUploadMedia.setSkipCompress:
+// 不管哪个上游路径（processUploadTask/commonUpdate/直接构造）只要试图给媒体设置 skipCompress=NO，
+// 在原画质会话里都强制改回 YES。这是真正的"无死角"hook
+%hook WCUploadMedia
+
+- (void)setSkipCompress:(BOOL)skipCompress {
+    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+        if (!skipCompress) {
+            JJ_LOG(@"上传", @"WCUploadMedia.setSkipCompress: 拦截 NO → 强制 YES (type=%d subType=%d)",
+                   (int)[[self valueForKey:@"type"] intValue],
+                   (int)[[self valueForKey:@"subType"] intValue]);
+        }
+        %orig(YES);
+    } else {
+        %orig;
+    }
+}
+
+%end
+
 // 注意：不再 hook MMVideoCompressHelper.exportVideoFromUrl:，因为已经在更底层的
 // VideoEncodeParams.adjustIfNeeded 和 VideoEncodeTask.exportAsynchronouslyWithCompletionHandler:
 // 处强制 skipVideoCompress=YES，效果更精确且副作用更小
@@ -2571,16 +2689,8 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
     }
     if ([JJDebugConsole isEnabled]) {
-        @try {
-            NSNumber *sk = [self valueForKey:@"skipVideoCompress"];
-            float w = [[self valueForKey:@"width"] floatValue];
-            float h = [[self valueForKey:@"height"] floatValue];
-            float br = [[self valueForKey:@"videoBitrate"] floatValue];
-            double fps = [[self valueForKey:@"fps"] doubleValue];
-            JJ_LOG(@"视频", @"VideoEncodeParams.adjustIfNeeded  skip=%@  %.0fx%.0f  fps=%.1f  bitrate=%.0fkbps  会话=%@",
-                   [sk boolValue] ? @"YES" : @"NO", w, h, fps, br/1000.0,
-                   active ? @"YES" : @"NO");
-        } @catch (NSException *e) {}
+        JJ_LOG(@"视频", @"VideoEncodeParams.adjustIfNeeded 会话=%@", active ? @"YES" : @"NO");
+        JJ_LOG(@"视频", @"  全属性: %@", jj_dumpProperties(self));
     }
 }
 

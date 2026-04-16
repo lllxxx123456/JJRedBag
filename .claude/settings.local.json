@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Read(//c/Users/Administrator/Desktop/**)",
-      "Read(//c/Users/Administrator/Desktop//**)"
+      "Read(//c/Users/Administrator/Desktop//**)",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(grep -n \"MiYouJiaYi\\\\|filteredMenuItems\\\\|canPerformAction\" \"/c/Users/Administrator/Desktop/8070wechat头文件/WeChat/\"*.h)"
     ]
   }
 }

@@ -2799,6 +2799,92 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
 }
 
+// ============== 视频原画质关键攻击点 ==============
+// 核心：视频从 1440P 降到 720P 的根源是 AVAssetExportSession 用 Medium 预设导出
+// asyncGetAssetVideo 的 compress 参数控制是否压缩，强制为 NO 即可绕过系统降级
+- (void)asyncGetAssetVideo:(id)asset compress:(BOOL)compress complete:(id)complete {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    if (active && compress) {
+        JJ_LOG(@"视频", @"asyncGetAssetVideo compress=YES→NO(强制原画) 会话=YES");
+        %orig(asset, NO, complete);
+        return;
+    }
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"asyncGetAssetVideo compress=%@ 会话=%@",
+               compress ? @"YES" : @"NO", active ? @"YES" : @"NO");
+    }
+    %orig;
+}
+
+// 视频导出回调块：noCompress=YES 让底层走"不压缩"路径
+- (id)getVideoExportCallbackBlockWithAsset:(id)asset URL:(id)url noCompress:(BOOL)noCompress exifLogInfo:(id)exif {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    if (active && !noCompress) {
+        JJ_LOG(@"视频", @"getVideoExportCallback noCompress=NO→YES(强制原画) 会话=YES");
+        return %orig(asset, url, YES, exif);
+    }
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"getVideoExportCallback noCompress=%@ 会话=%@",
+               noCompress ? @"YES" : @"NO", active ? @"YES" : @"NO");
+    }
+    return %orig;
+}
+
+// 观察：compressAndSendVideo 如果被调用，说明走的是压缩分支（不是我们想要的）
+- (void)compressAndSendVideo:(id)arg1 {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"compressAndSendVideo 被调用  会话=%@ arg=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+               NSStringFromClass([arg1 class]) ?: @"nil");
+    }
+    %orig;
+}
+
+// 观察：compress 事件链，定位真实压缩时机
+- (void)OnCompressBegin {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"OnCompressBegin  会话=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    }
+    %orig;
+}
+
+- (void)OnCompressEnd:(id)arg1 {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"OnCompressEnd  会话=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    }
+    %orig;
+}
+
+// ============== 图片降级点观察 ==============
+// 静态图从 3024×4032 → 1440×1920 的降级发生在哪里？先打日志观察
+- (void)processingImage {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"图片", @"processingImage  会话=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    }
+    %orig;
+}
+
+- (void)postProcessImages {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"图片", @"postProcessImages  会话=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
+    }
+    %orig;
+}
+
+// generateOriginAssetData 方法名里带 Origin，可能就是原始数据生成的地方
+- (id)generateOriginAssetData:(id)arg1 data:(id)arg2 dic:(id)arg3 {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"图片", @"generateOriginAssetData  会话=%@ arg1=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+               NSStringFromClass([arg1 class]) ?: @"nil");
+    }
+    return %orig;
+}
+
 %end
 
 // Hook基类MMAssetConfigObject，一次性覆盖所有子类（MMAssetTimeLineConfig/MMAssetNewLifeSelectImageConfig等）

@@ -4,6 +4,7 @@
 #import "JJRedBagContactSelectController.h"
 #import "JJRedBagMemberSelectController.h"
 #import "JJRedBagReceiveGroupController.h"
+#import "JJDebugConsole.h"
 #import "WeChatHeaders.h"
 
 typedef NS_ENUM(NSInteger, JJSubPageType) {
@@ -451,6 +452,8 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         case JJSubPageAdvanced: {
             NSInteger count = 4;
             if (manager.backgroundGrabEnabled) count++;
+            count++; // 调试器开关
+            if (manager.debugConsoleEnabled) count += 2; // 自动显示 + 立即显示/隐藏
             return count;
         }
         case JJSubPageAutoReply: {
@@ -611,6 +614,32 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
         cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
     }
     ci++;
+    if (row == ci) {
+        cell.textLabel.text = @"悬浮调试器";
+        cell.detailTextLabel.text = m.debugConsoleEnabled ? @"已开启" : @"未开启";
+        UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.debugConsoleEnabled; sw.tag = 206;
+        [sw addTarget:self action:@selector(debugConsoleSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
+    }
+    ci++;
+    if (m.debugConsoleEnabled) {
+        if (row == ci) {
+            cell.textLabel.text = @"启动时自动显示";
+            cell.detailTextLabel.text = m.debugConsoleAutoShow ? @"已开启" : @"未开启";
+            UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.debugConsoleAutoShow; sw.tag = 207;
+            [sw addTarget:self action:@selector(debugConsoleSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw; cell.accessoryType = UITableViewCellAccessoryNone; cell.selectionStyle = UITableViewCellSelectionStyleNone; return;
+        }
+        ci++;
+        if (row == ci) {
+            cell.textLabel.text = @"立即显示/隐藏调试器";
+            cell.detailTextLabel.text = @"点此切换";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+            return;
+        }
+        ci++;
+    }
 }
 
 - (void)configureAutoReply:(UITableViewCell *)cell row:(NSInteger)row mgr:(JJRedBagManager *)m {
@@ -848,6 +877,15 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     } else if (self.pageType == JJSubPageAdvanced) {
         NSInteger ci = 1;
         if (manager.backgroundGrabEnabled) { if (row == ci) { [self showBackgroundModeSelector]; return; } ci++; }
+        ci += 3; // 跳过：摇一摇、网页导航、朋友圈原画质
+        ci++;    // 跳过：悬浮调试器开关
+        if (manager.debugConsoleEnabled) {
+            ci++; // 跳过：启动时自动显示
+            if (row == ci) {
+                [[JJDebugConsole shared] toggle];
+                return;
+            }
+        }
     } else if (self.pageType == JJSubPageAutoReply) {
         if (manager.autoReplyDelayEnabled) { if (row == 4) [self showAutoReplyDelayTimeInput]; if (row == 5) [self showAutoReplyContentInput]; }
         else { if (row == 4) [self showAutoReplyContentInput]; }
@@ -1020,6 +1058,23 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
 
 - (void)momentsOriginalQualitySwitchChanged:(UISwitch *)sender {
     JJRedBagManager *m = [JJRedBagManager sharedManager]; m.momentsOriginalQualityEnabled = sender.on; [m saveSettings]; [self.tableView reloadData];
+}
+
+- (void)debugConsoleSwitchChanged:(UISwitch *)sender {
+    JJRedBagManager *m = [JJRedBagManager sharedManager];
+    if (sender.tag == 206) {
+        m.debugConsoleEnabled = sender.on;
+        if (sender.on) {
+            [[JJDebugConsole shared] show];
+            [[JJDebugConsole shared] logTag:@"信息" format:@"调试器已启用，将记录朋友圈发布全链路数据"];
+        } else {
+            [[JJDebugConsole shared] hide];
+        }
+    } else if (sender.tag == 207) {
+        m.debugConsoleAutoShow = sender.on;
+    }
+    [m saveSettings];
+    [self.tableView reloadData];
 }
 
 #pragma mark - Alert Methods

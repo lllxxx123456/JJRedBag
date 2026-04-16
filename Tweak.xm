@@ -2,11 +2,19 @@
 #import "JJRedBagManager.h"
 #import "JJRedBagSettingsController.h"
 #import "JJRedBagParam.h"
+#import "JJDebugConsole.h"
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
 #import <WebKit/WKWebView.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+
+// 调试器日志便捷宏：调试器关闭时零开销
+#define JJ_LOG(tag, fmt, ...) do { \
+    if ([JJDebugConsole isEnabled]) { \
+        [[JJDebugConsole shared] logTag:(tag) format:(fmt), ##__VA_ARGS__]; \
+    } \
+} while (0)
 
 #define kJJUTTypeGIF CFSTR("com.compuserve.gif")
 
@@ -1031,6 +1039,14 @@ static void jj_stopAllBackgroundModes(void) {
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
                               completionHandler:^(BOOL granted, NSError *error) {}];
+    }
+    
+    // 调试器自动显示（功能开启 + 设置为自动显示）
+    if (manager.enabled && manager.debugConsoleEnabled && manager.debugConsoleAutoShow) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [[JJDebugConsole shared] show];
+            [[JJDebugConsole shared] logTag:@"信息" format:@"微信启动，调试器自动显示"];
+        });
     }
     
 }
@@ -2421,10 +2437,12 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
     // 不再此处重置标志，避免异步图片处理时标志已被清除
     // 标志会在 sendSelectedMedia 后通过 WCNewCommitViewController 重置
+    JJ_LOG(@"发布", @"进入朋友圈时间线 WCTimeLineViewController");
 }
 
 - (void)showPhotoAlert:(id)arg1 {
     %orig;
+    JJ_LOG(@"发布", @"弹出朋友圈相机菜单 showPhotoAlert");
     dispatch_async(dispatch_get_main_queue(), ^{
         jj_injectMomentsOriginalMenu(self);
     });
@@ -2432,6 +2450,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)showUploadOption:(id)arg1 {
     %orig;
+    JJ_LOG(@"发布", @"弹出朋友圈上传菜单 showUploadOption");
     dispatch_async(dispatch_get_main_queue(), ^{
         jj_injectMomentsOriginalMenu(self);
     });
@@ -2446,13 +2465,16 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 // 图片/视频压缩 hook（VideoEncodeParams、MMImageUtil、MMVideoCompressHelper 等）都能生效
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    if (jj_momentsOriginalQualityFeatureEnabled()) {
-        jj_momentsOriginalPickerSessionPending = YES;
-    }
+    BOOL on = jj_momentsOriginalQualityFeatureEnabled();
+    if (on) jj_momentsOriginalPickerSessionPending = YES;
+    JJ_LOG(@"发布", @"进入朋友圈发布页 WCNewCommitViewController  原画质=%@  会话=%@",
+           on ? @"ON" : @"OFF",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;
+    JJ_LOG(@"发布", @"离开朋友圈发布页，6秒后重置会话");
     // 离开发布页面时延迟重置全局标志（不捕获 self，避免 controller 被释放后 block 野指针）
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         jj_momentsOriginalPickerSessionPending = NO;
@@ -2461,9 +2483,40 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 // 核心修复：朋友圈发布前处理上传任务，强制所有媒体跳过压缩
 - (void)processUploadTask:(id)task {
-    if (jj_momentsOriginalQualityFeatureEnabled()) {
+    BOOL on = jj_momentsOriginalQualityFeatureEnabled();
+    @try {
+        NSArray *medias = [task respondsToSelector:@selector(mediaList)] ? [task valueForKey:@"mediaList"] : nil;
+        JJ_LOG(@"上传", @"processUploadTask: 原画质=%@  task=%@  mediaList数=%lu",
+               on ? @"ON" : @"OFF",
+               NSStringFromClass([task class]) ?: @"nil",
+               (unsigned long)(medias.count));
+        NSInteger idx = 0;
+        for (id media in medias) {
+            NSString *mCls = NSStringFromClass([media class]) ?: @"?";
+            id skipC = nil, original = nil, path = nil, thumbPath = nil;
+            @try { skipC = [media valueForKey:@"skipCompress"]; } @catch(NSException *e){}
+            @try { original = [media valueForKey:@"original"]; } @catch(NSException *e){}
+            @try { path = [media valueForKey:@"path"]; } @catch(NSException *e){}
+            @try { thumbPath = [media valueForKey:@"thumbPath"]; } @catch(NSException *e){}
+            unsigned long long sz = 0;
+            if ([path isKindOfClass:[NSString class]] && [(NSString *)path length] > 0) {
+                NSDictionary *a = [[NSFileManager defaultManager] attributesOfItemAtPath:(NSString *)path error:nil];
+                sz = [a[NSFileSize] unsignedLongLongValue];
+            }
+            JJ_LOG(@"上传", @"  [%ld] %@  skipCompress=%@  original=%@  size=%.2fMB  path=%@",
+                   (long)idx, mCls,
+                   [skipC boolValue] ? @"YES" : @"NO",
+                   [original boolValue] ? @"YES" : @"NO",
+                   (double)sz / (1024.0 * 1024.0),
+                   (path ?: @"nil"));
+            idx++;
+        }
+    } @catch (NSException *e) {}
+    if (on) {
         jj_momentsOriginalPickerSessionPending = YES;
         jj_applyOriginalQualityToUploadTask(task);
+        JJ_LOG(@"上传", @"已对 %lu 个媒体应用 skipCompress=YES + setOriginal:YES",
+               (unsigned long)[([task valueForKey:@"mediaList"]) count]);
     }
     %orig;
 }
@@ -2473,14 +2526,15 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
     if (jj_momentsOriginalQualityFeatureEnabled()) {
         jj_applyOriginalQualityToUploadTask(task);
+        JJ_LOG(@"上传", @"commonUpdateWCUploadTask: 再次强制原画质标记");
     }
 }
 
 // 用户点击"发布"时同步激活会话（防止先前被重置）
 - (void)OnDone {
-    if (jj_momentsOriginalQualityFeatureEnabled()) {
-        jj_momentsOriginalPickerSessionPending = YES;
-    }
+    BOOL on = jj_momentsOriginalQualityFeatureEnabled();
+    if (on) jj_momentsOriginalPickerSessionPending = YES;
+    JJ_LOG(@"发布", @"点击『发布』OnDone  原画质=%@", on ? @"ON" : @"OFF");
     %orig;
 }
 
@@ -2490,7 +2544,11 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 %hook WCUploadTask
 
 - (void)setOriginal:(BOOL)original {
-    if (jj_momentsOriginalQualityFeatureEnabled()) {
+    BOOL on = jj_momentsOriginalQualityFeatureEnabled();
+    JJ_LOG(@"上传", @"WCUploadTask.setOriginal: 原始=%@ → 实际=%@",
+           original ? @"YES" : @"NO",
+           (on ? @"YES" : (original ? @"YES" : @"NO")));
+    if (on) {
         %orig(YES);
     } else {
         %orig;
@@ -2509,14 +2567,28 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)adjustIfNeeded {
     %orig;
-    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    if (active) {
         @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+    }
+    if ([JJDebugConsole isEnabled]) {
+        @try {
+            NSNumber *sk = [self valueForKey:@"skipVideoCompress"];
+            float w = [[self valueForKey:@"width"] floatValue];
+            float h = [[self valueForKey:@"height"] floatValue];
+            float br = [[self valueForKey:@"videoBitrate"] floatValue];
+            double fps = [[self valueForKey:@"fps"] doubleValue];
+            JJ_LOG(@"视频", @"VideoEncodeParams.adjustIfNeeded  skip=%@  %.0fx%.0f  fps=%.1f  bitrate=%.0fkbps  会话=%@",
+                   [sk boolValue] ? @"YES" : @"NO", w, h, fps, br/1000.0,
+                   active ? @"YES" : @"NO");
+        } @catch (NSException *e) {}
     }
 }
 
 - (void)_adjustSizeToStandardForMoments {
-    // 功能开启时跳过朋友圈标准尺寸的向下调整，保留原始分辨率
-    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    JJ_LOG(@"视频", @"VideoEncodeParams._adjustSizeToStandardForMoments  会话=%@", active ? @"YES" : @"NO");
+    if (active) {
         @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
         return;
     }
@@ -2530,7 +2602,10 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 %hook WCSightVideoCompositor
 
 + (void)startWithTask:(id)task resultBlock:(id)resultBlock {
-    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending && task) {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    JJ_LOG(@"视频", @"WCSightVideoCompositor.startWithTask  task=%@  会话=%@",
+           NSStringFromClass([task class]) ?: @"nil", active ? @"YES" : @"NO");
+    if (active && task) {
         @try {
             id params = nil;
             if ([task respondsToSelector:@selector(params)]) {
@@ -2551,17 +2626,24 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 %hook VideoEncodeTask
 
 - (void)exportAsynchronouslyWithCompletionHandler:(id)handler {
-    if (jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending) {
-        @try {
-            id params = nil;
-            if ([self respondsToSelector:@selector(params)]) {
-                params = [self performSelector:@selector(params)];
-            }
-            if (params) {
-                @try { [params setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
-            }
-        } @catch (NSException *e) {}
-    }
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    @try {
+        id params = [self respondsToSelector:@selector(params)] ? [self performSelector:@selector(params)] : nil;
+        if (active && params) {
+            @try { [params setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+        }
+        if ([JJDebugConsole isEnabled]) {
+            NSNumber *sk = nil;
+            @try { sk = [params valueForKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+            id inputPath = nil, outputPath = nil;
+            @try { inputPath = [self valueForKey:@"inputPath"]; } @catch (NSException *e) {}
+            @try { outputPath = [self valueForKey:@"outputPath"]; } @catch (NSException *e) {}
+            JJ_LOG(@"视频", @"VideoEncodeTask 开始导出  skip=%@  in=%@  out=%@",
+                   [sk boolValue] ? @"YES" : @"NO",
+                   (inputPath ?: @"nil"),
+                   (outputPath ?: @"nil"));
+        }
+    } @catch (NSException *e) {}
     %orig;
 }
 
@@ -2581,6 +2663,8 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
+            JJ_LOG(@"选图", @"MMImagePickerManager+showWithOptionObj 已启用原画质（来自 vc=%@）",
+                   NSStringFromClass([vc class]) ?: @"nil");
         }
     }
     %orig;
@@ -2593,6 +2677,8 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
+            JJ_LOG(@"选图", @"MMImagePickerManager-showWithOptionObj 已启用原画质（来自 vc=%@）",
+                   NSStringFromClass([vc class]) ?: @"nil");
         }
     }
     %orig;
@@ -2642,6 +2728,8 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 }
 
 - (void)sendSelectedMedia {
+    JJ_LOG(@"选图", @"MMAssetPickerController.sendSelectedMedia  会话=%@",
+           jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
     if (jj_momentsOriginalPickerSessionPending) {
         jj_prepareOriginalAssetInfosForPicker(self);
     }

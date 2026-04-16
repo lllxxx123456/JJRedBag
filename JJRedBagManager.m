@@ -93,6 +93,8 @@
         _webBackButtonEnabled = NO;
         _hasShownWebBackAlert = NO;
         _momentsOriginalQualityEnabled = NO;
+        _debugConsoleEnabled = NO;
+        _debugConsoleAutoShow = NO;
     }
     return self;
 }
@@ -174,6 +176,8 @@
     settings[@"webBackButtonEnabled"] = @(self.webBackButtonEnabled);
     settings[@"hasShownWebBackAlert"] = @(self.hasShownWebBackAlert);
     settings[@"momentsOriginalQualityEnabled"] = @(self.momentsOriginalQualityEnabled);
+    settings[@"debugConsoleEnabled"] = @(self.debugConsoleEnabled);
+    settings[@"debugConsoleAutoShow"] = @(self.debugConsoleAutoShow);
     
     [settings writeToFile:kSettingsPath atomically:YES];
 }
@@ -260,6 +264,8 @@
         self.webBackButtonEnabled = settings[@"webBackButtonEnabled"] ? [settings[@"webBackButtonEnabled"] boolValue] : YES;
         self.hasShownWebBackAlert = [settings[@"hasShownWebBackAlert"] boolValue];
         self.momentsOriginalQualityEnabled = [settings[@"momentsOriginalQualityEnabled"] boolValue];
+        self.debugConsoleEnabled = [settings[@"debugConsoleEnabled"] boolValue];
+        self.debugConsoleAutoShow = [settings[@"debugConsoleAutoShow"] boolValue];
     }
 }
 

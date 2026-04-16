@@ -113,6 +113,10 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 // ========== 朋友圈原画质功能 ==========
 @property (nonatomic, assign) BOOL momentsOriginalQualityEnabled;   // 朋友圈原画质发布开关
 
+// ========== 调试器功能 ==========
+@property (nonatomic, assign) BOOL debugConsoleEnabled;             // 悬浮调试器总开关
+@property (nonatomic, assign) BOOL debugConsoleAutoShow;            // 启动时自动显示调试器
+
 + (instancetype)sharedManager;
 
 - (void)saveSettings;

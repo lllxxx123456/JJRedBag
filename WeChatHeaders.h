@@ -394,11 +394,27 @@
 @property (nonatomic) BOOL isHDImage;
 @end
 
+@interface MMAssetConfigObject : NSObject
+@property (nonatomic) BOOL disableConvertRawImageData;
+- (BOOL)isRetrivingOriginImage;
+- (BOOL)isRetrivingOriginEditedImage;
+- (BOOL)shouldCompressLongImage;
+- (struct CGSize)imageSizeLimit;
+- (struct CGSize)imageResultSizeForOriginSize:(struct CGSize)a0;
+- (double)compressQuality;
+- (double)minCompressEarnings;
+- (unsigned long long)minNoneCompressNormalImageSize;
+- (unsigned long long)minNoneCompressLongImageSize;
+- (BOOL)disableOpportunisticDeliverMode;
+@end
+
 @interface MMAssetPickerController : UIViewController
 @property (nonatomic) BOOL isOriginSelected;
 @property (retain, nonatomic) NSMutableArray *selectedAssetInfos;
 - (void)onOriginImageCheckChanged;
 - (BOOL)getPickerWAVideoCompressedFromOptionObj;
+- (void)showRawTotalSize:(unsigned long long)a0;
+- (void)updateSelectTotalSize;
 @end
 
 // 转发/分享视图控制器（发布朋友圈等）

@@ -1749,17 +1749,18 @@ static UITableView *jj_findTableViewInView(UIView *view) {
     return nil;
 }
 
-%hook CommonMessageCellView
+// +1菜单注入必须hook BaseMessageCellView（filteredMenuItems:定义在此类上）
+// 如果hook子类CommonMessageCellView会绕过其他插件在BaseMessageCellView上的hook
+%hook BaseMessageCellView
 
 - (id)filteredMenuItems:(id)items {
     id result = %orig;
-    
+
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     if (!manager.enabled) return result;
     if (![result isKindOfClass:[NSArray class]]) return result;
-    
     if (!manager.plusOneEnabled) return result;
-    
+
     // 根据消息类型检查对应子开关
     CMessageWrap *msgWrap = nil;
     if ([self respondsToSelector:@selector(getMsgCmessageWrap)]) {
@@ -1773,10 +1774,9 @@ static UITableView *jj_findTableViewInView(UIView *view) {
         if ([self respondsToSelector:@selector(viewModel)]) vm = [self performSelector:@selector(viewModel)];
         if (vm && [vm respondsToSelector:@selector(messageWrap)]) msgWrap = [vm performSelector:@selector(messageWrap)];
     }
-    if (!msgWrap) return result; // 获取不到消息不显示+1
-    
+    if (!msgWrap) return result;
+
     unsigned int msgType = msgWrap.m_uiMessageType;
-    // 只有对应子开关开启时才显示+1
     BOOL shouldShow = NO;
     if (msgType == 1 && manager.plusOneTextEnabled) shouldShow = YES;
     if (msgType == 47 && manager.plusOneEmoticonEnabled) shouldShow = YES;
@@ -1784,46 +1784,25 @@ static UITableView *jj_findTableViewInView(UIView *view) {
     if (msgType == 43 && manager.plusOneVideoEnabled) shouldShow = YES;
     if (msgType == 49 && manager.plusOneFileEnabled) shouldShow = YES;
     if (!shouldShow) return result;
-    
+
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
+    // 避免重复添加（其他插件可能已添加）
+    for (id existingItem in newItems) {
+        if ([existingItem respondsToSelector:@selector(action)] &&
+            [existingItem action] == @selector(jjRedBag_onPlusOne)) {
+            return newItems;
+        }
+    }
+
     id plusOneItem = nil;
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
     if (MMMenuItemClass) {
-        @try {
-            plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jjRedBag_onPlusOne)];
-        } @catch (NSException *e) {}
-        if (!plusOneItem) {
-            @try {
-                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jjRedBag_onPlusOne)];
-            } @catch (NSException *e) {}
-        }
-        if (!plusOneItem) {
-            @try {
-                plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jjRedBag_onPlusOne)];
-            } @catch (NSException *e) {}
-        }
+        @try { plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jjRedBag_onPlusOne)]; } @catch (NSException *e) {}
+        if (!plusOneItem) { @try { plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jjRedBag_onPlusOne)]; } @catch (NSException *e) {} }
+        if (!plusOneItem) { @try { plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jjRedBag_onPlusOne)]; } @catch (NSException *e) {} }
     }
-    // 最终回退：使用标准UIMenuItem
-    if (!plusOneItem) {
-        @try {
-            plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jjRedBag_onPlusOne)];
-        } @catch (NSException *e) {}
-    }
-    // 安全检查：避免重复添加+1（其他插件可能已经添加了+1菜单项）
-    if (plusOneItem) {
-        BOOL alreadyExists = NO;
-        for (id existingItem in newItems) {
-            if ([existingItem respondsToSelector:@selector(title)] &&
-                [[existingItem title] isEqualToString:@"+1"]) {
-                alreadyExists = YES;
-                break;
-            }
-        }
-        if (!alreadyExists) {
-            // 追加到菜单末尾，避免插入位置影响其他插件的菜单项顺序
-            [newItems addObject:plusOneItem];
-        }
-    }
+    if (!plusOneItem) { @try { plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jjRedBag_onPlusOne)]; } @catch (NSException *e) {} }
+    if (plusOneItem) [newItems addObject:plusOneItem];
     return newItems;
 }
 
@@ -1851,6 +1830,7 @@ static UITableView *jj_findTableViewInView(UIView *view) {
     return %orig;
 }
 
+// +1实际操作方法也定义在BaseMessageCellView上
 %new
 - (void)jjRedBag_onPlusOne {
     @try {
@@ -2060,91 +2040,30 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 
 %end
 
-// Hook表情消息Cell - 通过filteredMenuItems添加"调整大小"菜单项
+// EmoticonMessageCellView只添加"大大小小"菜单（+1已由BaseMessageCellView统一处理）
 %hook EmoticonMessageCellView
 
 - (id)filteredMenuItems:(id)items {
     id result = %orig;
-    
+
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
-    if (!manager.enabled) return result;
+    if (!manager.enabled || !manager.emoticonScaleEnabled) return result;
     if (![result isKindOfClass:[NSArray class]]) return result;
-    
+
     NSMutableArray *newItems = [NSMutableArray arrayWithArray:result];
     Class MMMenuItemClass = objc_getClass("MMMenuItem");
-    
-    // 检查+1是否已由CommonMessageCellView父类hook添加，避免重复
-    if (manager.plusOneEnabled && manager.plusOneEmoticonEnabled) {
-        BOOL hasPlusOne = NO;
-        for (id item in newItems) {
-            if ([item respondsToSelector:@selector(title)] && [[item title] isEqualToString:@"+1"]) {
-                hasPlusOne = YES;
-                break;
-            }
-        }
-        if (!hasPlusOne) {
-            id plusOneItem = nil;
-            if (MMMenuItemClass) {
-                @try {
-                    plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" svgName:@"icons_outlined_copy" target:self action:@selector(jjRedBag_onPlusOne)];
-                } @catch (NSException *e) {}
-                if (!plusOneItem) {
-                    @try {
-                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" target:self action:@selector(jjRedBag_onPlusOne)];
-                    } @catch (NSException *e) {}
-                }
-                if (!plusOneItem) {
-                    @try {
-                        plusOneItem = [[MMMenuItemClass alloc] initWithTitle:@"+1" icon:nil target:self action:@selector(jjRedBag_onPlusOne)];
-                    } @catch (NSException *e) {}
-                }
-            }
-            if (!plusOneItem) {
-                @try {
-                    plusOneItem = [[UIMenuItem alloc] initWithTitle:@"+1" action:@selector(jjRedBag_onPlusOne)];
-                } @catch (NSException *e) {}
-            }
-            if (plusOneItem) {
-                // 追加到末尾，避免影响其他插件
-                [newItems addObject:plusOneItem];
-            }
-        }
+    id scaleItem = nil;
+    if (MMMenuItemClass) {
+        @try { scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_sticker" target:self action:@selector(jj_onEmoticonResize)]; } @catch (NSException *e) {}
+        if (!scaleItem) { @try { scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" target:self action:@selector(jj_onEmoticonResize)]; } @catch (NSException *e) {} }
+        if (!scaleItem) { @try { scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" icon:nil target:self action:@selector(jj_onEmoticonResize)]; } @catch (NSException *e) {} }
     }
-    
-    // 大大小小菜单项（仅在表情缩放开关开启时添加）
-    if (manager.emoticonScaleEnabled) {
-        id scaleItem = nil;
-        if (MMMenuItemClass) {
-            @try {
-                scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" svgName:@"icons_outlined_sticker" target:self action:@selector(jj_onEmoticonResize)];
-            } @catch (NSException *e) {}
-            if (!scaleItem) {
-                @try {
-                    scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" target:self action:@selector(jj_onEmoticonResize)];
-                } @catch (NSException *e) {}
-            }
-            if (!scaleItem) {
-                @try {
-                    scaleItem = [[MMMenuItemClass alloc] initWithTitle:@"大大小小" icon:nil target:self action:@selector(jj_onEmoticonResize)];
-                } @catch (NSException *e) {}
-            }
-        }
-        if (!scaleItem) {
-            @try {
-                scaleItem = [[UIMenuItem alloc] initWithTitle:@"大大小小" action:@selector(jj_onEmoticonResize)];
-            } @catch (NSException *e) {}
-        }
-        if (scaleItem) [newItems addObject:scaleItem];
-    }
+    if (!scaleItem) { @try { scaleItem = [[UIMenuItem alloc] initWithTitle:@"大大小小" action:@selector(jj_onEmoticonResize)]; } @catch (NSException *e) {} }
+    if (scaleItem) [newItems addObject:scaleItem];
     return newItems;
 }
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-    if (action == @selector(jjRedBag_onPlusOne)) {
-        JJRedBagManager *m = [JJRedBagManager sharedManager];
-        if (!m.enabled || !m.plusOneEnabled || !m.plusOneEmoticonEnabled) return %orig;
-        return YES;
-    }
     if (action == @selector(jj_onEmoticonResize)) {
         JJRedBagManager *m = [JJRedBagManager sharedManager];
         if (!m.enabled || !m.emoticonScaleEnabled) return %orig;
@@ -2299,8 +2218,14 @@ static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picke
     if (!picker) return;
     @try {
         picker.isOriginSelected = YES;
+        // 设置内部原图发送标志
+        @try { [picker setValue:@YES forKey:@"_isOriginalImageForSend"]; } @catch (NSException *e) {}
         if ([picker respondsToSelector:@selector(onOriginImageCheckChanged)]) {
             [picker onOriginImageCheckChanged];
+        }
+        // 触发文件大小重新计算
+        if ([picker respondsToSelector:@selector(updateSelectTotalSize)]) {
+            [picker updateSelectTotalSize];
         }
         NSArray *assetInfos = picker.selectedAssetInfos;
         if (![assetInfos isKindOfClass:[NSArray class]]) return;
@@ -2322,11 +2247,17 @@ static void jj_prepareOriginalAssetInfosForPicker(MMAssetPickerController *picke
 static void jj_hideMakeVideoButtonInView(UIView *view) {
     if (!view) return;
     for (UIView *sub in view.subviews) {
-        // 检查 UIButton
+        // 检查 UIButton（制作视频/模板合成按钮）
         if ([sub isKindOfClass:[UIButton class]]) {
             UIButton *btn = (UIButton *)sub;
             NSString *title = [btn titleForState:UIControlStateNormal];
-            if (title && ([title containsString:@"制作视频"] || [title containsString:@"视频"])) {
+            if (title && [title containsString:@"制作视频"]) {
+                btn.hidden = YES;
+                continue;
+            }
+            // 也检查按钮的类名（_templateComposingButton类型）
+            NSString *cls = NSStringFromClass([btn class]);
+            if ([cls containsString:@"Template"] || [cls containsString:@"Composing"]) {
                 btn.hidden = YES;
                 continue;
             }
@@ -2335,7 +2266,6 @@ static void jj_hideMakeVideoButtonInView(UIView *view) {
         if ([sub isKindOfClass:[UILabel class]]) {
             UILabel *label = (UILabel *)sub;
             if (label.text && [label.text containsString:@"制作视频"]) {
-                // 隐藏 label 所在的父容器
                 sub.superview.hidden = YES;
                 continue;
             }
@@ -2529,7 +2459,14 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
     if (jj_momentsOriginalPickerSessionPending) {
         jj_prepareOriginalAssetInfosForPicker(self);
+        // 设置内部标志确保原图发送
+        @try { [self setValue:@YES forKey:@"_isOriginalImageForSend"]; } @catch (NSException *e) {}
         // 隐藏"制作视频"按钮，避免遮挡原画质文件大小显示
+        @try {
+            UIButton *btn = [self valueForKey:@"_templateComposingButton"];
+            if (btn) btn.hidden = YES;
+        } @catch (NSException *e) {}
+        // 通用查找兜底
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             jj_hideMakeVideoButtonInView(self.view);
         });
@@ -2539,7 +2476,10 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)viewDidLayoutSubviews {
     %orig;
     if (jj_momentsOriginalPickerSessionPending) {
-        jj_hideMakeVideoButtonInView(self.view);
+        @try {
+            UIButton *btn = [self valueForKey:@"_templateComposingButton"];
+            if (btn) btn.hidden = YES;
+        } @catch (NSException *e) {}
     }
 }
 
@@ -2576,65 +2516,59 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
-%hook MMAssetTimeLineConfig
+// Hook基类MMAssetConfigObject，一次性覆盖所有子类（MMAssetTimeLineConfig/MMAssetNewLifeSelectImageConfig等）
+%hook MMAssetConfigObject
 
 - (BOOL)isRetrivingOriginImage {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return YES;
-    }
+    if (jj_momentsOriginalPickerSessionPending) return YES;
+    return %orig;
+}
+
+- (BOOL)isRetrivingOriginEditedImage {
+    if (jj_momentsOriginalPickerSessionPending) return YES;
     return %orig;
 }
 
 - (BOOL)shouldCompressLongImage {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return NO;
-    }
+    if (jj_momentsOriginalPickerSessionPending) return NO;
     return %orig;
 }
 
 - (struct CGSize)imageResultSizeForOriginSize:(struct CGSize)arg1 {
+    if (jj_momentsOriginalPickerSessionPending) return arg1;
+    return %orig;
+}
+
+- (struct CGSize)imageSizeLimit {
     if (jj_momentsOriginalPickerSessionPending) {
-        return arg1;
+        struct CGSize maxSize = {99999.0, 99999.0};
+        return maxSize;
     }
     return %orig;
 }
 
 - (double)compressQuality {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return 1.0;
-    }
+    if (jj_momentsOriginalPickerSessionPending) return 1.0;
     return %orig;
 }
 
-%end
-
-%hook MMAssetNewLifeSelectImageConfig
-
-- (BOOL)isRetrivingOriginImage {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return YES;
-    }
+- (double)minCompressEarnings {
+    if (jj_momentsOriginalPickerSessionPending) return 1.0;
     return %orig;
 }
 
-- (BOOL)shouldCompressLongImage {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return NO;
-    }
+- (unsigned long long)minNoneCompressNormalImageSize {
+    if (jj_momentsOriginalPickerSessionPending) return ULLONG_MAX;
     return %orig;
 }
 
-- (struct CGSize)imageResultSizeForOriginSize:(struct CGSize)arg1 {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return arg1;
-    }
+- (unsigned long long)minNoneCompressLongImageSize {
+    if (jj_momentsOriginalPickerSessionPending) return ULLONG_MAX;
     return %orig;
 }
 
-- (double)compressQuality {
-    if (jj_momentsOriginalPickerSessionPending) {
-        return 1.0;
-    }
+- (BOOL)disableOpportunisticDeliverMode {
+    if (jj_momentsOriginalPickerSessionPending) return YES;
     return %orig;
 }
 

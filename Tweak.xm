@@ -2200,25 +2200,6 @@ static BOOL jj_isMomentsOriginalPickerOptionObject(id obj) {
     return optionObjClass && [obj isKindOfClass:optionObjClass];
 }
 
-// 判断VC是否在朋友圈发布相关上下文（用于决定是否强制原画质）
-static BOOL jj_isMomentsPublishContext(UIViewController *vc) {
-    if (!vc) return NO;
-    UIViewController *cur = vc;
-    int depth = 0;
-    while (cur && depth < 8) {
-        NSString *clsName = NSStringFromClass([cur class]);
-        if ([clsName isEqualToString:@"WCNewCommitViewController"] ||
-            [clsName isEqualToString:@"WCTimeLineViewController"] ||
-            [clsName isEqualToString:@"ImageSelectorController"] ||
-            [clsName isEqualToString:@"MMAssetPickerController"]) {
-            return YES;
-        }
-        cur = cur.presentingViewController ?: cur.parentViewController;
-        depth++;
-    }
-    return NO;
-}
-
 static BOOL jj_actionSheetContainsTitle(WCActionSheet *sheet, NSString *title) {
     if (!sheet || title.length == 0) return NO;
     @try {
@@ -2520,8 +2501,8 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
-    if (on) jj_momentsOriginalPickerSessionPending = YES;
-    JJ_LOG(@"发布", @"进入朋友圈发布页 WCNewCommitViewController  原画质=%@  会话=%@",
+    // 不主动开启会话，仅保持之前由插件菜单开启的状态，避免官方入口被误走原画质
+    JJ_LOG(@"发布", @"进入朋友圈发布页 WCNewCommitViewController  功能=%@  会话=%@",
            on ? @"ON" : @"OFF",
            jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
     // 一次性探测：列出 WCNewCommitViewController 真实方法名，定位上传任务入口
@@ -2559,13 +2540,15 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     });
 }
 
-// 核心修复：朋友圈发布前处理上传任务，强制所有媒体跳过压缩
+// 朋友圈发布前处理上传任务：只有会话已被插件菜单开启时才强制原画质，官方入口不受影响
 - (void)processUploadTask:(id)task {
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
+    BOOL session = jj_momentsOriginalPickerSessionPending;
     @try {
         NSArray *medias = [task respondsToSelector:@selector(mediaList)] ? [task valueForKey:@"mediaList"] : nil;
-        JJ_LOG(@"上传", @"processUploadTask: 原画质=%@  task=%@  mediaList数=%lu",
+        JJ_LOG(@"上传", @"processUploadTask: 功能=%@ 会话=%@  task=%@  mediaList数=%lu",
                on ? @"ON" : @"OFF",
+               session ? @"YES" : @"NO",
                NSStringFromClass([task class]) ?: @"nil",
                (unsigned long)(medias.count));
         NSInteger idx = 0;
@@ -2589,25 +2572,26 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
             idx++;
         }
     } @catch (NSException *e) {}
-    if (on) {
-        jj_momentsOriginalPickerSessionPending = YES;
+    if (on && session) {
         jj_applyOriginalQualityToUploadTask(task);
         JJ_LOG(@"上传", @"已对 %lu 个媒体应用 skipCompress=YES + setOriginal:YES",
-               (unsigned long)[([task valueForKey:@"mediaList"]) count]);
+               (unsigned long)[[task valueForKey:@"mediaList"] count]);
     }
     %orig;
 }
 
-// 兜底：更新任务时也强制一次
+// 兜底：仅在会话已被插件菜单开启时再次强制原画质标记
 - (void)commonUpdateWCUploadTask:(id)task {
     %orig;
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
-    if (on) {
+    BOOL session = jj_momentsOriginalPickerSessionPending;
+    if (on && session) {
         jj_applyOriginalQualityToUploadTask(task);
     }
     if ([JJDebugConsole isEnabled]) {
-        JJ_LOG(@"上传", @"commonUpdateWCUploadTask: 原画质=%@  task=%@",
+        JJ_LOG(@"上传", @"commonUpdateWCUploadTask: 功能=%@ 会话=%@  task=%@",
                on ? @"ON" : @"OFF",
+               session ? @"YES" : @"NO",
                NSStringFromClass([task class]) ?: @"nil");
         JJ_LOG(@"上传", @"  task全属性: %@", jj_dumpProperties(task));
         @try {
@@ -2627,25 +2611,31 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     }
 }
 
-// 用户点击"发布"时同步激活会话（防止先前被重置）
+// 用户点击"发布"仅记录状态，不主动开启会话，避免官方入口被误走原画质
 - (void)OnDone {
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
-    if (on) jj_momentsOriginalPickerSessionPending = YES;
-    JJ_LOG(@"发布", @"点击『发布』OnDone  原画质=%@", on ? @"ON" : @"OFF");
+    BOOL session = jj_momentsOriginalPickerSessionPending;
+    JJ_LOG(@"发布", @"点击『发布』OnDone  功能=%@ 会话=%@",
+           on ? @"ON" : @"OFF",
+           session ? @"YES" : @"NO");
     %orig;
 }
 
 %end
 
-// Hook上传任务本身：setOriginal: 只要功能开启就强制 YES
+// Hook上传任务本身：仅在原画质会话被插件菜单开启后才强制 YES。官方入口不受影响
 %hook WCUploadTask
 
 - (void)setOriginal:(BOOL)original {
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
-    JJ_LOG(@"上传", @"WCUploadTask.setOriginal: 原始=%@ → 实际=%@",
+    BOOL session = jj_momentsOriginalPickerSessionPending;
+    BOOL force = (on && session);
+    JJ_LOG(@"上传", @"WCUploadTask.setOriginal: 原始=%@ → 实际=%@ (功能=%@ 会话=%@)",
            original ? @"YES" : @"NO",
-           (on ? @"YES" : (original ? @"YES" : @"NO")));
-    if (on) {
+           (force ? @"YES" : (original ? @"YES" : @"NO")),
+           on ? @"ON" : @"OFF",
+           session ? @"YES" : @"NO");
+    if (force) {
         %orig(YES);
     } else {
         %orig;
@@ -2764,15 +2754,16 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %hook MMImagePickerManager
 
-// 只要功能开启且当前在朋友圈发布上下文中（不限于专用菜单入口），就自动强制原画质
+// 严格模式：仅在 controller 被插件原画质菜单精确标记后才启用原画质，官方"从手机相册选择"完全保持原样
 + (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 {
     if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
-        if (jj_shouldForceMomentsOriginalPickerForController(vc) || jj_isMomentsPublishContext(vc)) {
+        // 关键：只有 controller 被插件原画质菜单点击精确标记过才启用，官方入口不受影响
+        if (jj_shouldForceMomentsOriginalPickerForController(vc)) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
-            JJ_LOG(@"选图", @"MMImagePickerManager+showWithOptionObj 已启用原画质（来自 vc=%@）",
+            JJ_LOG(@"选图", @"MMImagePickerManager+showWithOptionObj 已启用原画质（来自插件菜单 vc=%@）",
                    NSStringFromClass([vc class]) ?: @"nil");
         }
     }
@@ -2782,11 +2773,11 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 delegate:(id)arg3 {
     if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
-        if (jj_shouldForceMomentsOriginalPickerForController(vc) || jj_isMomentsPublishContext(vc)) {
+        if (jj_shouldForceMomentsOriginalPickerForController(vc)) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
-            JJ_LOG(@"选图", @"MMImagePickerManager-showWithOptionObj 已启用原画质（来自 vc=%@）",
+            JJ_LOG(@"选图", @"MMImagePickerManager-showWithOptionObj 已启用原画质（来自插件菜单 vc=%@）",
                    NSStringFromClass([vc class]) ?: @"nil");
         }
     }

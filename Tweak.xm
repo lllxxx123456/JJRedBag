@@ -2137,6 +2137,9 @@ static BOOL jj_momentsOriginalPickerSessionPending = NO;
 // VideoEncodeParams.setWidth:/setHeight: 拦截器会用它替换微信硬编码的 720×960
 static float jj_momentsVideoTargetWidth = 0.0f;
 static float jj_momentsVideoTargetHeight = 0.0f;
+// 当前会话的视频源码率（kbps，从 AVAssetTrack.estimatedDataRate 读出并换算）
+// VideoEncodeParams.setVideoBitrate: 拦截器会用它替换微信低码率（1511~3027kbps）
+static float jj_momentsVideoTargetBitrateKbps = 0.0f;
 
 // 判断朋友圈原画质功能是否开启
 static BOOL jj_momentsOriginalQualityFeatureEnabled(void) {
@@ -2676,6 +2679,25 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
 }
 
+// 核心拦截：微信 Moments 把 videoBitrate 硬编码到 ~1500kbps，导致上传 buffer 只有 162KB
+// 会话激活且 jj_momentsVideoTargetBitrateKbps 已从源 AVAsset 读出时，
+// 用源码率替换微信的低码率（仅在微信值明显低于源码率时替换）
+- (void)setVideoBitrate:(float)bitrate {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    if (active && jj_momentsVideoTargetBitrateKbps > 0 && bitrate > 0
+        && jj_momentsVideoTargetBitrateKbps > bitrate + 500.0f) {
+        JJ_LOG(@"视频", @"VideoEncodeParams.setVideoBitrate: %.0fkbps → %.0fkbps(强制原画)",
+               bitrate, jj_momentsVideoTargetBitrateKbps);
+        %orig(jj_momentsVideoTargetBitrateKbps);
+        return;
+    }
+    if ([JJDebugConsole isEnabled] && jj_momentsOriginalPickerSessionPending) {
+        JJ_LOG(@"视频", @"VideoEncodeParams.setVideoBitrate: %.0fkbps 会话=YES (保留，源=%.0fkbps)",
+               bitrate, jj_momentsVideoTargetBitrateKbps);
+    }
+    %orig;
+}
+
 %end
 
 // 核心压缩点二：WCSightVideoCompositor 朋友圈视频合成器入口
@@ -2724,10 +2746,12 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         } @catch (NSException *e) {}
     }
 
-    // 核心：读取 cachedEditedAssetFileURL 对应 AVAsset 的真实尺寸，存入全局变量
-    // 供 VideoEncodeParams.setWidth:/setHeight: 拦截器使用，替换微信硬编码的 720×960
+    // 核心：读取 cachedEditedAssetFileURL 对应 AVAsset 的真实尺寸 + 真实码率，存入全局变量
+    // 供 VideoEncodeParams.setWidth:/setHeight:/setVideoBitrate: 拦截器使用，
+    // 替换微信硬编码的 720×960 + 1500kbps 低码率
     jj_momentsVideoTargetWidth = 0.0f;
     jj_momentsVideoTargetHeight = 0.0f;
+    jj_momentsVideoTargetBitrateKbps = 0.0f;
     if (active && task) {
         @try {
             id urlObj = nil;
@@ -2749,8 +2773,14 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
                         jj_momentsVideoTargetWidth = w;
                         jj_momentsVideoTargetHeight = h;
                     }
-                    JJ_LOG(@"视频", @"cachedEditedAssetFile 真实展示尺寸=%.0fx%.0f (natural=%.0fx%.0f)",
-                           w, h, natural.width, natural.height);
+                    // estimatedDataRate 返回 bps，换算为 kbps 存入全局
+                    float bpsRate = track.estimatedDataRate;
+                    float kbps = bpsRate / 1000.0f;
+                    if (kbps > 0) {
+                        jj_momentsVideoTargetBitrateKbps = kbps;
+                    }
+                    JJ_LOG(@"视频", @"cachedEditedAssetFile 真实展示尺寸=%.0fx%.0f (natural=%.0fx%.0f) 源码率=%.0fkbps",
+                           w, h, natural.width, natural.height, kbps);
                 }
             }
         } @catch (NSException *e) {}

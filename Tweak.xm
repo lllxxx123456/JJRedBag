@@ -2700,6 +2700,26 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
                 depth++;
             }
             JJ_LOG(@"视频", @"WCSightVideoCompositeTask 属性: %@", dump);
+            // 专门读取 srcPHAsset 的原始尺寸 —— 关键信息
+            id srcPHAsset = nil;
+            @try { srcPHAsset = [task valueForKey:@"srcPHAsset"]; } @catch (NSException *e) {}
+            if (srcPHAsset) {
+                NSInteger pw = 0, ph = 0;
+                @try { pw = [[srcPHAsset valueForKey:@"pixelWidth"] integerValue]; } @catch (NSException *e) {}
+                @try { ph = [[srcPHAsset valueForKey:@"pixelHeight"] integerValue]; } @catch (NSException *e) {}
+                if (pw == 0 || ph == 0) {
+                    // MMAssetForPHAssetFramework 可能通过 asset / phAsset 属性暴露内部 PHAsset
+                    id inner = nil;
+                    @try { inner = [srcPHAsset valueForKey:@"asset"]; } @catch (NSException *e) {}
+                    if (!inner) { @try { inner = [srcPHAsset valueForKey:@"phAsset"]; } @catch (NSException *e) {} }
+                    if (inner) {
+                        @try { pw = [[inner valueForKey:@"pixelWidth"] integerValue]; } @catch (NSException *e) {}
+                        @try { ph = [[inner valueForKey:@"pixelHeight"] integerValue]; } @catch (NSException *e) {}
+                    }
+                }
+                JJ_LOG(@"视频", @"srcPHAsset 真实原尺寸=%ldx%ld (class=%@)",
+                       (long)pw, (long)ph, NSStringFromClass([srcPHAsset class]) ?: @"?");
+            }
         } @catch (NSException *e) {}
     }
     if (active && task) {
@@ -2714,6 +2734,40 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         } @catch (NSException *e) {}
     }
     %orig;
+}
+
+%end
+
+// 核心攻击点：拦截 AVAssetExportSession 的 preset 降级
+// 微信 picker 合成 AssetComposite-*.MOV 时用 MediumQuality(720P)，强制升级到 HighestQuality(保持原分辨率)
+// 仅在朋友圈原画质会话激活时生效，不影响聊天等其他功能
+%hook AVAssetExportSession
+
+- (id)initWithAsset:(AVAsset *)asset presetName:(NSString *)presetName {
+    BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
+    if (active && [presetName isKindOfClass:[NSString class]]) {
+        // 以下 preset 会导致分辨率降级，全部强制升级到 HighestQuality
+        static NSSet *downgradePresets = nil;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            downgradePresets = [NSSet setWithArray:@[
+                @"AVAssetExportPresetLowQuality",
+                @"AVAssetExportPresetMediumQuality",
+                @"AVAssetExportPreset640x480",
+                @"AVAssetExportPreset960x540",
+                @"AVAssetExportPreset1280x720",
+            ]];
+        });
+        if ([downgradePresets containsObject:presetName]) {
+            JJ_LOG(@"视频", @"AVAssetExportSession.init 拦截 preset=%@ → HighestQuality(强制原画)", presetName);
+            return %orig(asset, AVAssetExportPresetHighestQuality);
+        }
+    }
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"AVAssetExportSession.init preset=%@ 会话=%@",
+               presetName ?: @"nil", active ? @"YES" : @"NO");
+    }
+    return %orig;
 }
 
 %end

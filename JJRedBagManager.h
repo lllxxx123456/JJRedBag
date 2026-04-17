@@ -110,8 +110,8 @@ typedef NS_ENUM(NSInteger, JJBackgroundMode) {
 @property (nonatomic, assign) BOOL webBackButtonEnabled;          // 网页返回按钮开关
 @property (nonatomic, assign) BOOL hasShownWebBackAlert;           // 是否已显示网页返回按钮说明
 
-// ========== 朋友圈原画质功能 ==========
-@property (nonatomic, assign) BOOL momentsOriginalQualityEnabled;   // 朋友圈原画质发布开关
+// ========== 朋友圈高画质功能 ==========
+@property (nonatomic, assign) BOOL momentsOriginalQualityEnabled;   // 朋友圈高画质发布开关（内部属性名保留 Original 避免持久化 key 变动导致用户配置丢失）
 
 // ========== 调试器功能 ==========
 @property (nonatomic, assign) BOOL debugConsoleEnabled;             // 悬浮调试器总开关

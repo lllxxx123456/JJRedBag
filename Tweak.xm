@@ -2129,9 +2129,9 @@ static UITableView *jj_findTableViewInView(UIView *view) {
 %end
 
 
-static NSString *jj_momentsOriginalMenuTitle = @"从手机相册选择（原画质）";
+static NSString *jj_momentsOriginalMenuTitle = @"从手机相册选择（高画质）";
 static char jj_momentsForceOriginalPickerKey;
-// 当前是否处于朋友圈原画质会话中（从 MMImagePickerManager 打开相册时自动标记）
+// 当前是否处于朋友圈高画质会话中（从 MMImagePickerManager 打开相册时自动标记）
 static BOOL jj_momentsOriginalPickerSessionPending = NO;
 // 当前会话的视频原始尺寸（从 cachedEditedAssetFileURL 读出 AVAsset.naturalSize + preferredTransform）
 // VideoEncodeParams.setWidth:/setHeight: 拦截器会用它替换微信硬编码的 720×960
@@ -2141,7 +2141,7 @@ static float jj_momentsVideoTargetHeight = 0.0f;
 // VideoEncodeParams.setVideoBitrate: 拦截器会用它替换微信低码率（1511~3027kbps）
 static float jj_momentsVideoTargetBitrateKbps = 0.0f;
 
-// 判断朋友圈原画质功能是否开启
+// 判断朋友圈高画质功能是否开启
 static BOOL jj_momentsOriginalQualityFeatureEnabled(void) {
     JJRedBagManager *manager = [JJRedBagManager sharedManager];
     return manager.enabled && manager.momentsOriginalQualityEnabled;
@@ -2179,7 +2179,7 @@ static NSInteger jj_momentsAlbumButtonIndex(WCActionSheet *sheet) {
                 if ([title isEqualToString:@"从手机相册选择"]) {
                     return (NSInteger)i;
                 }
-                if (fallbackIndex == NSNotFound && [title containsString:@"从手机相册选择"] && ![title containsString:@"原画质"]) {
+                if (fallbackIndex == NSNotFound && [title containsString:@"从手机相册选择"] && ![title containsString:@"高画质"]) {
                     fallbackIndex = (NSInteger)i;
                 }
             }
@@ -2273,7 +2273,7 @@ static void jj_safeSetBoolProperty(id target, SEL sel, BOOL value) {
 static void jj_applyOriginalQualityToUploadTask(id task) {
     if (!task) return;
     @try {
-        // 任务级原画质标记（安全调用，避免 id 下签名错乱）
+        // 任务级高画质标记（安全调用，避免 id 下签名错乱）
         jj_safeSetBoolProperty(task, @selector(setOriginal:), YES);
         // 遍历 mediaList 逐一设置 skipCompress
         @try {
@@ -2287,7 +2287,7 @@ static void jj_applyOriginalQualityToUploadTask(id task) {
     } @catch (NSException *e) {}
 }
 
-// 递归隐藏包含"制作视频"文本的按钮/视图，避免遮挡原画质文件大小显示
+// 递归隐藏包含"制作视频"文本的按钮/视图，避免遮挡高画质文件大小显示
 static void jj_hideMakeVideoButtonInView(UIView *view) {
     if (!view) return;
     for (UIView *sub in view.subviews) {
@@ -2446,7 +2446,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
-// Hook朋友圈发布控制器，核心修复：在上传任务派发前强制原画质
+// Hook朋友圈发布控制器，核心修复：在上传任务派发前强制高画质
 %hook WCNewCommitViewController
 
 // 朋友圈发布页面出现时保持会话开启（不做3秒自动重置），确保发布过程中所有
@@ -2454,7 +2454,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
-    // 不主动开启会话，仅保持之前由插件菜单开启的状态，避免官方入口被误走原画质
+    // 不主动开启会话，仅保持之前由插件菜单开启的状态，避免官方入口被误走高画质
     JJ_LOG(@"发布", @"进入朋友圈发布页 WCNewCommitViewController  功能=%@  会话=%@",
            on ? @"ON" : @"OFF",
            jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO");
@@ -2469,7 +2469,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     });
 }
 
-// 朋友圈发布前处理上传任务：只有会话已被插件菜单开启时才强制原画质，官方入口不受影响
+// 朋友圈发布前处理上传任务：只有会话已被插件菜单开启时才强制高画质，官方入口不受影响
 - (void)processUploadTask:(id)task {
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
     BOOL session = jj_momentsOriginalPickerSessionPending;
@@ -2481,7 +2481,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
 }
 
-// 兜底：仅在会话已被插件菜单开启时再次强制原画质标记
+// 兜底：仅在会话已被插件菜单开启时再次强制高画质标记
 - (void)commonUpdateWCUploadTask:(id)task {
     %orig;
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
@@ -2509,7 +2509,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     }
 }
 
-// 用户点击"发布"仅记录状态，不主动开启会话，避免官方入口被误走原画质
+// 用户点击"发布"仅记录状态，不主动开启会话，避免官方入口被误走高画质
 - (void)OnDone {
     BOOL on = jj_momentsOriginalQualityFeatureEnabled();
     BOOL session = jj_momentsOriginalPickerSessionPending;
@@ -2540,7 +2540,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %end
 
-// Hook上传任务本身：仅在原画质会话被插件菜单开启后才强制 YES。官方入口不受影响
+// Hook上传任务本身：仅在高画质会话被插件菜单开启后才强制 YES。官方入口不受影响
 %hook WCUploadTask
 
 - (void)setOriginal:(BOOL)original {
@@ -2563,7 +2563,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 // 关键：从最底层接管 WCUploadMedia.setSkipCompress:
 // 不管哪个上游路径（processUploadTask/commonUpdate/直接构造）只要试图给媒体设置 skipCompress=NO，
-// 在原画质会话里都强制改回 YES。这是真正的"无死角"hook
+// 在高画质会话里都强制改回 YES。这是真正的"无死角"hook
 %hook WCUploadMedia
 
 - (void)setSkipCompress:(BOOL)skipCompress {
@@ -2609,7 +2609,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 // 处强制 skipVideoCompress=YES，效果更精确且副作用更小
 
 // 核心压缩点一：视频编码参数级的跳过压缩开关（发布阶段最底层）
-// 在朋友圈原画质会话中，强制 skipVideoCompress=YES，让微信走 MMVideoNotCompressTask 分支
+// 在朋友圈高画质会话中，强制 skipVideoCompress=YES，让微信走 MMVideoNotCompressTask 分支
 %hook VideoEncodeParams
 
 - (void)adjustIfNeeded {
@@ -2633,17 +2633,42 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)_adjustSizeToStandardForMoments {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
-    if ([JJDebugConsole isEnabled]) {
-        JJ_LOG(@"视频", @"VideoEncodeParams._adjustSizeToStandardForMoments 进入  会话=%@ 当前=%.0fx%.0f",
-               active ? @"YES" : @"NO",
-               [[self valueForKey:@"width"] doubleValue],
-               [[self valueForKey:@"height"] doubleValue]);
-    }
-    if (active) {
-        @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
-        return;
-    }
+    float beforeW = 0, beforeH = 0;
+    @try {
+        beforeW = [[self valueForKey:@"width"] floatValue];
+        beforeH = [[self valueForKey:@"height"] floatValue];
+    } @catch (NSException *e) {}
+    // 关键修复：不要跳过 %orig，否则微信内部的尺寸/宽高比对齐逻辑会缺失，
+    // 服务器收到 VideoEncodeParams 与实际 bitstream 宽高比不一致就会把画面拉伸。
+    // 正确做法：让 %orig 正常执行对齐，执行后如果尺寸被改回小于目标值，再强制写回。
     %orig;
+    if (active) {
+        float afterW = 0, afterH = 0;
+        @try {
+            afterW = [[self valueForKey:@"width"] floatValue];
+            afterH = [[self valueForKey:@"height"] floatValue];
+        } @catch (NSException *e) {}
+        // 若原方法把宽高按朋友圈标准缩小（比如缩回 720×960），再强制写回目标尺寸
+        if (jj_momentsVideoTargetWidth > 0 && jj_momentsVideoTargetHeight > 0
+            && (afterW + 1.0f < jj_momentsVideoTargetWidth || afterH + 1.0f < jj_momentsVideoTargetHeight)) {
+            @try {
+                [self setValue:@(jj_momentsVideoTargetWidth) forKey:@"width"];
+                [self setValue:@(jj_momentsVideoTargetHeight) forKey:@"height"];
+            } @catch (NSException *e) {}
+            JJ_LOG(@"视频", @"_adjustSizeToStandardForMoments 后尺寸被缩 %.0fx%.0f → 修正回 %.0fx%.0f",
+                   afterW, afterH, jj_momentsVideoTargetWidth, jj_momentsVideoTargetHeight);
+        }
+        @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
+    }
+    if ([JJDebugConsole isEnabled]) {
+        float finalW = 0, finalH = 0;
+        @try {
+            finalW = [[self valueForKey:@"width"] floatValue];
+            finalH = [[self valueForKey:@"height"] floatValue];
+        } @catch (NSException *e) {}
+        JJ_LOG(@"视频", @"VideoEncodeParams._adjustSizeToStandardForMoments 进前=%.0fx%.0f 进后=%.0fx%.0f 会话=%@",
+               beforeW, beforeH, finalW, finalH, active ? @"YES" : @"NO");
+    }
 }
 
 // 核心拦截：微信 Moments 模块把 VideoEncodeParams.width/height 硬编码写入 720×960
@@ -2653,7 +2678,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && jj_momentsVideoTargetWidth > 0 && width > 0 && width <= 720
         && jj_momentsVideoTargetWidth > width + 1.0f) {
-        JJ_LOG(@"视频", @"VideoEncodeParams.setWidth: %.0f → %.0f(强制原画)",
+        JJ_LOG(@"视频", @"VideoEncodeParams.setWidth: %.0f → %.0f(强制高画)",
                width, jj_momentsVideoTargetWidth);
         %orig(jj_momentsVideoTargetWidth);
         return;
@@ -2668,7 +2693,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && jj_momentsVideoTargetHeight > 0 && height > 0 && height <= 960
         && jj_momentsVideoTargetHeight > height + 1.0f) {
-        JJ_LOG(@"视频", @"VideoEncodeParams.setHeight: %.0f → %.0f(强制原画)",
+        JJ_LOG(@"视频", @"VideoEncodeParams.setHeight: %.0f → %.0f(强制高画)",
                height, jj_momentsVideoTargetHeight);
         %orig(jj_momentsVideoTargetHeight);
         return;
@@ -2686,7 +2711,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && jj_momentsVideoTargetBitrateKbps > 0 && bitrate > 0
         && jj_momentsVideoTargetBitrateKbps > bitrate + 500.0f) {
-        JJ_LOG(@"视频", @"VideoEncodeParams.setVideoBitrate: %.0fkbps → %.0fkbps(强制原画)",
+        JJ_LOG(@"视频", @"VideoEncodeParams.setVideoBitrate: %.0fkbps → %.0fkbps(强制高画)",
                bitrate, jj_momentsVideoTargetBitrateKbps);
         %orig(jj_momentsVideoTargetBitrateKbps);
         return;
@@ -2844,7 +2869,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 // 核心攻击点：拦截 AVAssetExportSession 的 preset 降级
 // 微信 picker 合成 AssetComposite-*.MOV 时用 MediumQuality(720P)，强制升级到 HighestQuality(保持原分辨率)
-// 仅在朋友圈原画质会话激活时生效，不影响聊天等其他功能
+// 仅在朋友圈高画质会话激活时生效，不影响聊天等其他功能
 %hook AVAssetExportSession
 
 // 注意：这里 asset 参数用 id 而不是 AVAsset *，因为 AVFoundation 的 #import 在本文件后段，
@@ -2865,7 +2890,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
             ]];
         });
         if ([downgradePresets containsObject:presetName]) {
-            JJ_LOG(@"视频", @"AVAssetExportSession.init 拦截 preset=%@ → HighestQuality(强制原画)", presetName);
+            JJ_LOG(@"视频", @"AVAssetExportSession.init 拦截 preset=%@ → HighestQuality(强制高画)", presetName);
             return %orig(asset, AVAssetExportPresetHighestQuality);
         }
     }
@@ -2879,7 +2904,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 %end
 
 // 核心压缩点三：VideoEncodeTask 通用编码任务开始导出前
-// 任何从 chat 或 moments 走 VideoEncodeTask 的路径，在朋友圈原画质会话中都跳过压缩
+// 任何从 chat 或 moments 走 VideoEncodeTask 的路径，在朋友圈高画质会话中都跳过压缩
 %hook VideoEncodeTask
 
 - (void)exportAsynchronouslyWithCompletionHandler:(id)handler {
@@ -2912,16 +2937,16 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 %hook MMImagePickerManager
 
-// 严格模式：仅在 controller 被插件原画质菜单精确标记后才启用原画质，官方"从手机相册选择"完全保持原样
+// 严格模式：仅在 controller 被插件高画质菜单精确标记后才启用高画质，官方"从手机相册选择"完全保持原样
 + (void)showWithOptionObj:(id)arg1 inViewController:(id)arg2 {
     if (jj_momentsOriginalQualityFeatureEnabled() && jj_isMomentsOriginalPickerOptionObject(arg1) && [arg2 isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)arg2;
-        // 关键：只有 controller 被插件原画质菜单点击精确标记过才启用，官方入口不受影响
+        // 关键：只有 controller 被插件高画质菜单点击精确标记过才启用，官方入口不受影响
         if (jj_shouldForceMomentsOriginalPickerForController(vc)) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
-            JJ_LOG(@"选图", @"MMImagePickerManager+showWithOptionObj 已启用原画质（来自插件菜单 vc=%@）",
+            JJ_LOG(@"选图", @"MMImagePickerManager+showWithOptionObj 已启用高画质（来自插件菜单 vc=%@）",
                    NSStringFromClass([vc class]) ?: @"nil");
         }
     }
@@ -2935,7 +2960,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
             jj_momentsOriginalPickerSessionPending = YES;
             jj_applyMomentsOriginalPickerOptions((MMImagePickerManagerOptionObj *)arg1);
             jj_markMomentsOriginalPickerForController(vc, NO);
-            JJ_LOG(@"选图", @"MMImagePickerManager-showWithOptionObj 已启用原画质（来自插件菜单 vc=%@）",
+            JJ_LOG(@"选图", @"MMImagePickerManager-showWithOptionObj 已启用高画质（来自插件菜单 vc=%@）",
                    NSStringFromClass([vc class]) ?: @"nil");
         }
     }
@@ -2952,7 +2977,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
         jj_prepareOriginalAssetInfosForPicker(self);
         // 设置内部标志确保原图发送
         @try { [self setValue:@YES forKey:@"_isOriginalImageForSend"]; } @catch (NSException *e) {}
-        // 隐藏"制作视频"按钮，避免遮挡原画质文件大小显示
+        // 隐藏"制作视频"按钮，避免遮挡高画质文件大小显示
         @try {
             UIButton *btn = [self valueForKey:@"_templateComposingButton"];
             if (btn) btn.hidden = YES;
@@ -3017,7 +3042,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     %orig;
 }
 
-// ============== 视频原画质关键攻击点 ==============
+// ============== 视频高画质关键攻击点 ==============
 // 观察：视频选图完成后的真实发送入口（上一轮测试显示 asyncGetAssetVideo 未被调用）
 - (void)sendVideoWithAsset:(id)asset {
     if ([JJDebugConsole isEnabled]) {
@@ -3057,7 +3082,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (void)asyncGetAssetVideo:(id)asset compress:(BOOL)compress complete:(id)complete {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && compress) {
-        JJ_LOG(@"视频", @"asyncGetAssetVideo compress=YES→NO(强制原画) 会话=YES");
+        JJ_LOG(@"视频", @"asyncGetAssetVideo compress=YES→NO(强制高画) 会话=YES");
         %orig(asset, NO, complete);
         return;
     }
@@ -3072,7 +3097,7 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 - (id)getVideoExportCallbackBlockWithAsset:(id)asset URL:(id)url noCompress:(BOOL)noCompress exifLogInfo:(id)exif {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && !noCompress) {
-        JJ_LOG(@"视频", @"getVideoExportCallback noCompress=NO→YES(强制原画) 会话=YES");
+        JJ_LOG(@"视频", @"getVideoExportCallback noCompress=NO→YES(强制高画) 会话=YES");
         return %orig(asset, url, YES, exif);
     }
     if ([JJDebugConsole isEnabled]) {

@@ -607,7 +607,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     }
     ci++;
     if (row == ci) {
-        cell.textLabel.text = @"朋友圈原画质";
+        cell.textLabel.text = @"朋友圈高画质";
         cell.detailTextLabel.text = m.momentsOriginalQualityEnabled ? @"已开启" : @"未开启";
         UISwitch *sw = [[UISwitch alloc] init]; sw.on = m.momentsOriginalQualityEnabled; sw.tag = 205;
         [sw addTarget:self action:@selector(momentsOriginalQualitySwitchChanged:) forControlEvents:UIControlEventValueChanged];
@@ -877,7 +877,7 @@ typedef NS_ENUM(NSInteger, JJSubPageType) {
     } else if (self.pageType == JJSubPageAdvanced) {
         NSInteger ci = 1;
         if (manager.backgroundGrabEnabled) { if (row == ci) { [self showBackgroundModeSelector]; return; } ci++; }
-        ci += 3; // 跳过：摇一摇、网页导航、朋友圈原画质
+        ci += 3; // 跳过：摇一摇、网页导航、朋友圈高画质
         ci++;    // 跳过：悬浮调试器开关
         if (manager.debugConsoleEnabled) {
             ci++; // 跳过：启动时自动显示

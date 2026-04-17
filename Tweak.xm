@@ -2743,7 +2743,9 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 // 仅在朋友圈原画质会话激活时生效，不影响聊天等其他功能
 %hook AVAssetExportSession
 
-- (id)initWithAsset:(AVAsset *)asset presetName:(NSString *)presetName {
+// 注意：这里 asset 参数用 id 而不是 AVAsset *，因为 AVFoundation 的 #import 在本文件后段，
+// Logos 把方法签名生成到文件前部时 AVAsset 类型还未声明，会导致 CI 编译失败
+- (id)initWithAsset:(id)asset presetName:(NSString *)presetName {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && [presetName isKindOfClass:[NSString class]]) {
         // 以下 preset 会导致分辨率降级，全部强制升级到 HighestQuality

@@ -2626,10 +2626,31 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 
 - (void)_adjustSizeToStandardForMoments {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
-    JJ_LOG(@"视频", @"VideoEncodeParams._adjustSizeToStandardForMoments  会话=%@", active ? @"YES" : @"NO");
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"VideoEncodeParams._adjustSizeToStandardForMoments 进入  会话=%@ 当前=%.0fx%.0f",
+               active ? @"YES" : @"NO",
+               [[self valueForKey:@"width"] doubleValue],
+               [[self valueForKey:@"height"] doubleValue]);
+    }
     if (active) {
         @try { [self setValue:@YES forKey:@"skipVideoCompress"]; } @catch (NSException *e) {}
         return;
+    }
+    %orig;
+}
+
+// 观察：width/height 是在什么时刻被设置的？值是多少？
+// VideoEncodeParams.width/height 是 float 类型（见 WeChatHeaders.h）
+- (void)setWidth:(float)width {
+    if ([JJDebugConsole isEnabled] && jj_momentsOriginalPickerSessionPending) {
+        JJ_LOG(@"视频", @"VideoEncodeParams.setWidth: %.0f 会话=YES", width);
+    }
+    %orig;
+}
+
+- (void)setHeight:(float)height {
+    if ([JJDebugConsole isEnabled] && jj_momentsOriginalPickerSessionPending) {
+        JJ_LOG(@"视频", @"VideoEncodeParams.setHeight: %.0f 会话=YES", height);
     }
     %orig;
 }
@@ -2644,6 +2665,43 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     JJ_LOG(@"视频", @"WCSightVideoCompositor.startWithTask  task=%@  会话=%@",
            NSStringFromClass([task class]) ?: @"nil", active ? @"YES" : @"NO");
+    // 反射 dump task 全部可读属性，寻找 originAsset / videoURL / origVideoSize 等关键字段
+    if (active && [JJDebugConsole isEnabled] && task) {
+        @try {
+            NSMutableString *dump = [NSMutableString string];
+            Class cls = [task class];
+            int depth = 0;
+            while (cls && cls != [NSObject class] && depth < 3) {
+                unsigned int count = 0;
+                objc_property_t *props = class_copyPropertyList(cls, &count);
+                for (unsigned int i = 0; i < count; i++) {
+                    const char *name = property_getName(props[i]);
+                    NSString *propName = [NSString stringWithUTF8String:name];
+                    id v = nil;
+                    @try { v = [task valueForKey:propName]; } @catch (NSException *e) { continue; }
+                    if (v == nil) continue;
+                    NSString *desc;
+                    if ([v isKindOfClass:[NSString class]]) {
+                        NSUInteger l = [(NSString *)v length];
+                        desc = l > 80 ? [[(NSString *)v substringToIndex:77] stringByAppendingString:@"..."] : v;
+                    } else if ([v isKindOfClass:[NSNumber class]]) {
+                        desc = [(NSNumber *)v stringValue];
+                    } else if ([v isKindOfClass:[NSURL class]]) {
+                        desc = [(NSURL *)v absoluteString];
+                    } else if ([v isKindOfClass:[NSValue class]]) {
+                        desc = [(NSValue *)v description];
+                    } else {
+                        desc = [NSString stringWithFormat:@"<%@>", NSStringFromClass([v class])];
+                    }
+                    [dump appendFormat:@"%@=%@; ", propName, desc];
+                }
+                if (props) free(props);
+                cls = [cls superclass];
+                depth++;
+            }
+            JJ_LOG(@"视频", @"WCSightVideoCompositeTask 属性: %@", dump);
+        } @catch (NSException *e) {}
+    }
     if (active && task) {
         @try {
             id params = nil;
@@ -2800,8 +2858,42 @@ static BOOL jj_hideLastGroupLabelInView(UIView *view) {
 }
 
 // ============== 视频原画质关键攻击点 ==============
-// 核心：视频从 1440P 降到 720P 的根源是 AVAssetExportSession 用 Medium 预设导出
-// asyncGetAssetVideo 的 compress 参数控制是否压缩，强制为 NO 即可绕过系统降级
+// 观察：视频选图完成后的真实发送入口（上一轮测试显示 asyncGetAssetVideo 未被调用）
+- (void)sendVideoWithAsset:(id)asset {
+    if ([JJDebugConsole isEnabled]) {
+        @try {
+            // 尝试读取 asset 的原始尺寸（PHAsset 有 pixelWidth/pixelHeight）
+            NSInteger pw = 0, ph = 0;
+            @try { pw = [[asset valueForKey:@"pixelWidth"] integerValue]; } @catch (NSException *e) {}
+            @try { ph = [[asset valueForKey:@"pixelHeight"] integerValue]; } @catch (NSException *e) {}
+            JJ_LOG(@"视频", @"MMAssetPickerController.sendVideoWithAsset 会话=%@ asset=%@ 原尺寸=%ldx%ld",
+                   jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+                   NSStringFromClass([asset class]) ?: @"nil",
+                   (long)pw, (long)ph);
+        } @catch (NSException *e) {}
+    }
+    %orig;
+}
+
+- (void)sendVideoWithURL:(id)url aigcContent:(id)aigc {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"MMAssetPickerController.sendVideoWithURL 会话=%@ url=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+               [url isKindOfClass:[NSURL class]] ? [(NSURL *)url absoluteString] : (NSString *)url);
+    }
+    %orig;
+}
+
+- (void)sendVideoWithDraft:(id)draft {
+    if ([JJDebugConsole isEnabled]) {
+        JJ_LOG(@"视频", @"MMAssetPickerController.sendVideoWithDraft 会话=%@ draft=%@",
+               jj_momentsOriginalPickerSessionPending ? @"YES" : @"NO",
+               NSStringFromClass([draft class]) ?: @"nil");
+    }
+    %orig;
+}
+
+// asyncGetAssetVideo/getVideoExportCallback 在上一轮测试中未被触发，保留做兜底观察
 - (void)asyncGetAssetVideo:(id)asset compress:(BOOL)compress complete:(id)complete {
     BOOL active = jj_momentsOriginalQualityFeatureEnabled() && jj_momentsOriginalPickerSessionPending;
     if (active && compress) {
